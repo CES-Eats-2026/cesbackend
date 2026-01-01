@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/api/places")
-@CrossOrigin(origins = {"https://cesfront.vercel.app", "http://localhost:3000"})
+@CrossOrigin(origins = {"https://ceseats.store", "https://cesfront.vercel.app", "http://localhost:3000"})
 public class PlaceController {
 
     @Autowired
