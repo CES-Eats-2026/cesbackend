@@ -77,27 +77,29 @@ jobs:
           GABIA_SSH_PORT: ${{ secrets.GABIA_SSH_PORT || '22' }}
         run: |
           # 배포 경로 생성 및 권한 설정
-          ssh -p ${GABIA_SSH_PORT} ${GABIA_USER}@${GABIA_HOST} bash << 'PREPARE_SCRIPT'
+          ssh -p ${GABIA_SSH_PORT} ${GABIA_USER}@${GABIA_HOST} bash << PREPARE_SCRIPT
             set -e
             DEPLOY_PATH="${GABIA_DEPLOY_PATH}"
             
+            echo "배포 경로: \${DEPLOY_PATH}"
+            
             # 배포 경로 생성 (없는 경우)
-            if [ ! -d "${DEPLOY_PATH}" ]; then
-              echo "배포 경로 생성 중: ${DEPLOY_PATH}"
-              sudo mkdir -p ${DEPLOY_PATH}
-              sudo chown ${USER}:${USER} ${DEPLOY_PATH}
-              sudo chmod 755 ${DEPLOY_PATH}
+            if [ ! -d "\${DEPLOY_PATH}" ]; then
+              echo "배포 경로 생성 중: \${DEPLOY_PATH}"
+              sudo mkdir -p \${DEPLOY_PATH}
+              sudo chown \${USER}:\${USER} \${DEPLOY_PATH}
+              sudo chmod 755 \${DEPLOY_PATH}
             fi
             
             # 쓰기 권한 확인
-            if [ ! -w "${DEPLOY_PATH}" ]; then
+            if [ ! -w "\${DEPLOY_PATH}" ]; then
               echo "배포 경로에 쓰기 권한 부여 중..."
-              sudo chown ${USER}:${USER} ${DEPLOY_PATH}
-              sudo chmod 755 ${DEPLOY_PATH}
+              sudo chown \${USER}:\${USER} \${DEPLOY_PATH}
+              sudo chmod 755 \${DEPLOY_PATH}
             fi
             
-            echo "✅ 배포 경로 준비 완료: ${DEPLOY_PATH}"
-            ls -ld ${DEPLOY_PATH}
+            echo "✅ 배포 경로 준비 완료: \${DEPLOY_PATH}"
+            ls -ld \${DEPLOY_PATH}
           PREPARE_SCRIPT
 
       - name: Upload deployment files
