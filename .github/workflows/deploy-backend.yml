@@ -1,0 +1,121 @@
+name: CI/CD - Build and Deploy to Gabia
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # 수동 실행 가능
+
+env:
+  DOCKER_IMAGE_NAME: ces-eats-backend
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+jobs:
+  # CI: Build Docker image and push to Docker Hub
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:buildcache,mode=max
+
+  # CD: Blue-Green Deployment
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.GABIA_SSH_KEY }}
+
+      - name: Add server to known hosts
+        env:
+          GABIA_HOST: ${{ secrets.GABIA_HOST }}
+          GABIA_SSH_PORT: ${{ secrets.GABIA_SSH_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${GABIA_SSH_PORT} -H ${GABIA_HOST} >> ~/.ssh/known_hosts
+
+      - name: Upload deployment files
+        env:
+          GABIA_USER: ${{ secrets.GABIA_USER }}
+          GABIA_HOST: ${{ secrets.GABIA_HOST }}
+          GABIA_DEPLOY_PATH: ${{ secrets.GABIA_DEPLOY_PATH }}
+          GABIA_SSH_PORT: ${{ secrets.GABIA_SSH_PORT || '22' }}
+        run: |
+          scp -P ${GABIA_SSH_PORT} .github/workflows/blue-green-deploy.sh ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/ 2>/dev/null || scp -P ${GABIA_SSH_PORT} blue-green-deploy.sh ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/
+          scp -P ${GABIA_SSH_PORT} nginx.conf ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/ 2>/dev/null || true
+          ssh -p ${GABIA_SSH_PORT} ${GABIA_USER}@${GABIA_HOST} "chmod +x ${GABIA_DEPLOY_PATH}/blue-green-deploy.sh"
+
+      - name: Deploy with Blue-Green strategy
+        env:
+          GABIA_USER: ${{ secrets.GABIA_USER }}
+          GABIA_HOST: ${{ secrets.GABIA_HOST }}
+          GABIA_DEPLOY_PATH: ${{ secrets.GABIA_DEPLOY_PATH }}
+          GABIA_SSH_PORT: ${{ secrets.GABIA_SSH_PORT || '22' }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_IMAGE_NAME: ${{ env.DOCKER_IMAGE_NAME }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          ssh -p ${GABIA_SSH_PORT} ${GABIA_USER}@${GABIA_HOST} bash << DEPLOY_SCRIPT
+            set -e
+            cd ${GABIA_DEPLOY_PATH}
+            
+            export DOCKER_USERNAME="${DOCKER_USERNAME}"
+            export GOOGLE_PLACES_API_KEY="${GOOGLE_PLACES_API_KEY}"
+            export OPENAI_API_KEY="${OPENAI_API_KEY}"
+            
+            ./blue-green-deploy.sh
+          DEPLOY_SCRIPT
+
+      - name: Verify deployment
+        env:
+          GABIA_HOST: ${{ secrets.GABIA_HOST }}
+        run: |
+          echo "최종 배포 확인 중..."
+          sleep 3
+          for i in {1..5}; do
+            if curl -f http://${GABIA_HOST}/api/health; then
+              echo "✅ 배포 확인 성공"
+              exit 0
+            fi
+            echo "재시도 중... ($i/5)"
+            sleep 3
+          done
+          echo "❌ 배포 확인 실패"
+          exit 1
+
