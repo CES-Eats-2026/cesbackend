@@ -13,6 +13,7 @@ PORT_BLUE=8080
 PORT_GREEN=8081
 ACTIVE_PORT_FILE="${DEPLOY_PATH}/.active-port"
 NGINX_CONF="${DEPLOY_PATH}/nginx.conf"
+NGINX_SITES_AVAILABLE="/etc/nginx/sites-available/default"
 
 # 배포 경로 및 파일 권한 확인
 if [ ! -d "${DEPLOY_PATH}" ]; then
@@ -180,12 +181,52 @@ if [ ${RETRY_COUNT} -eq ${MAX_RETRIES} ]; then
     exit 1
 fi
 
-# 6. Nginx 컨테이너 확인 및 생성/업데이트
+# 6. Nginx 설정 업데이트 및 트래픽 전환
 echo "6. 트래픽 전환 중..."
+
+# 6-1. 서버에 직접 설치된 Nginx 설정 업데이트 (우선)
+if [ -f "${NGINX_SITES_AVAILABLE}" ]; then
+    echo "서버 Nginx 설정 파일 업데이트 중: ${NGINX_SITES_AVAILABLE}"
+    
+    # 백업 생성
+    sudo cp ${NGINX_SITES_AVAILABLE} ${NGINX_SITES_AVAILABLE}.bak
+    
+    # location / 블록 내의 proxy_pass만 찾아서 변경
+    # sed의 범위 주소를 사용하여 location / { ... } 블록 내에서만 변경
+    # location / { 부터 해당 블록의 } 까지 범위 지정
+    # -E 옵션으로 확장 정규식 사용, 더 정확한 매칭
+    sudo sed -i.tmp -E "/location\s+\/\s*\{/,/^\s*\}/ s|(proxy_pass\s+http://127\.0\.0\.1:)[0-9]+(;)|\1${DEPLOY_PORT}\2|" ${NGINX_SITES_AVAILABLE} 2>/dev/null || {
+        # 위 방법이 실패하면 더 간단한 방법 사용
+        # location / 블록 내에서만 찾기 (중괄호 범위 사용)
+        sudo sed -i.tmp "/^\s*location\s\+\/\s*{/,/^\s*}/ s|proxy_pass http://127\.0\.0\.1:[0-9]*;|proxy_pass http://127.0.0.1:${DEPLOY_PORT};|" ${NGINX_SITES_AVAILABLE} 2>/dev/null || {
+            # 최후의 수단: 모든 proxy_pass 변경 (다른 location 블록이 없는 경우)
+            sudo sed -i.tmp "s|proxy_pass http://127\.0\.0\.1:[0-9]*;|proxy_pass http://127.0.0.1:${DEPLOY_PORT};|" ${NGINX_SITES_AVAILABLE}
+        }
+    }
+    sudo rm -f ${NGINX_SITES_AVAILABLE}.tmp 2>/dev/null || true
+    
+    # 변경 확인 (디버깅용)
+    echo "변경된 proxy_pass 확인:"
+    sudo grep -n "proxy_pass" ${NGINX_SITES_AVAILABLE} | head -5 || true
+    
+    # Nginx 설정 테스트
+    if sudo nginx -t 2>/dev/null; then
+        sudo systemctl reload nginx 2>/dev/null || sudo service nginx reload 2>/dev/null
+        echo "✅ 서버 Nginx 설정 업데이트 완료 (트래픽 전환: 포트 ${DEPLOY_PORT})"
+    else
+        echo "⚠️  Nginx 설정 테스트 실패. 변경사항을 롤백합니다."
+        sudo mv ${NGINX_SITES_AVAILABLE}.bak ${NGINX_SITES_AVAILABLE} 2>/dev/null || true
+        exit 1
+    fi
+else
+    echo "⚠️  서버 Nginx 설정 파일을 찾을 수 없습니다: ${NGINX_SITES_AVAILABLE}"
+fi
+
+# 6-2. Docker Nginx 컨테이너 확인 및 생성/업데이트 (백업)
 if ! docker ps | grep -q ceseats-nginx; then
     # Nginx 컨테이너가 없으면 생성
     if [ -f "${NGINX_CONF}" ]; then
-        echo "Nginx 컨테이너 생성 중..."
+        echo "Docker Nginx 컨테이너 생성 중..."
         docker run -d \
             --name ceseats-nginx \
             -p 80:80 \
@@ -193,21 +234,20 @@ if ! docker ps | grep -q ceseats-nginx; then
             --network ceseats-network \
             -v ${NGINX_CONF}:/etc/nginx/nginx.conf:ro \
             nginx:alpine
-        echo "✅ Nginx 컨테이너 생성 완료"
+        echo "✅ Docker Nginx 컨테이너 생성 완료"
         sleep 2
     else
-        echo "⚠️  Nginx 설정 파일이 없습니다: ${NGINX_CONF}"
-        echo "⚠️  Nginx 없이 배포를 계속 진행합니다. (포트 ${DEPLOY_PORT}로 직접 접근 가능)"
+        echo "⚠️  Docker Nginx 설정 파일이 없습니다: ${NGINX_CONF}"
     fi
 fi
 
-# Nginx 설정 업데이트 (있는 경우만)
+# Docker Nginx 설정 업데이트 (있는 경우만)
 if docker ps | grep -q ceseats-nginx; then
     if [ -f "${NGINX_CONF}" ]; then
         # nginx.conf에서 upstream 서버 변경
         sed -i.bak "s/server ceseats-.*:8080;/server ${NGINX_UPSTREAM};/" ${NGINX_CONF}
         docker exec ceseats-nginx nginx -s reload
-        echo "✅ Nginx 설정 업데이트 완료 (트래픽 전환: ${NGINX_UPSTREAM})"
+        echo "✅ Docker Nginx 설정 업데이트 완료 (트래픽 전환: ${NGINX_UPSTREAM})"
     fi
 fi
 
