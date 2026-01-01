@@ -13,7 +13,8 @@ import java.util.*;
 public class PlaceTypeAnalyzer {
     
     private static final String PLACES_API_BASE_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json";
-    private static final String API_KEY = "AIzaSyCV4oBI-Pig1YPxIMb7XBD4p4X7kv-M6LQ"; // 실제 API 키로 변경
+    // API 키는 환경 변수에서 가져오기 (보안)
+    private static final String API_KEY = System.getenv("GOOGLE_PLACES_API_KEY");
     
     // Las Vegas CES 전시장 위치 (The Venetian Expo)
     private static final double LATITUDE = 36.1147;
@@ -35,6 +36,13 @@ public class PlaceTypeAnalyzer {
     };
     
     public static void main(String[] args) {
+        // API 키 확인
+        if (API_KEY == null || API_KEY.isEmpty()) {
+            System.err.println("❌ GOOGLE_PLACES_API_KEY 환경 변수가 설정되지 않았습니다.");
+            System.err.println("   환경 변수 설정: export GOOGLE_PLACES_API_KEY=your_api_key");
+            System.exit(1);
+        }
+        
         RestTemplate restTemplate = new RestTemplate();
         ObjectMapper objectMapper = new ObjectMapper();
         
