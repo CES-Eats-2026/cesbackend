@@ -14,6 +14,20 @@ PORT_GREEN=8081
 ACTIVE_PORT_FILE="${DEPLOY_PATH}/.active-port"
 NGINX_CONF="${DEPLOY_PATH}/nginx.conf"
 
+# 배포 경로 및 파일 권한 확인
+if [ ! -d "${DEPLOY_PATH}" ]; then
+    echo "배포 경로 생성 중: ${DEPLOY_PATH}"
+    mkdir -p "${DEPLOY_PATH}"
+fi
+
+# .active-port 파일이 없으면 생성 (권한 확인)
+if [ ! -f "${ACTIVE_PORT_FILE}" ]; then
+    touch "${ACTIVE_PORT_FILE}" 2>/dev/null || {
+        echo "⚠️  .active-port 파일 생성 권한이 없습니다. sudo를 사용하거나 디렉토리 권한을 확인하세요."
+        echo "   해결 방법: sudo chown -R \$(whoami) ${DEPLOY_PATH}"
+    }
+fi
+
 # 배포 대상 결정
 if [ "$1" = "green" ]; then
     DEPLOY_TO="green"
@@ -183,11 +197,11 @@ if ! docker ps | grep -q ceseats-nginx; then
         sleep 2
     else
         echo "⚠️  Nginx 설정 파일이 없습니다: ${NGINX_CONF}"
-        echo "⚠️  트래픽 전환은 수동으로 설정해야 합니다."
+        echo "⚠️  Nginx 없이 배포를 계속 진행합니다. (포트 ${DEPLOY_PORT}로 직접 접근 가능)"
     fi
 fi
 
-# Nginx 설정 업데이트
+# Nginx 설정 업데이트 (있는 경우만)
 if docker ps | grep -q ceseats-nginx; then
     if [ -f "${NGINX_CONF}" ]; then
         # nginx.conf에서 upstream 서버 변경
@@ -198,7 +212,12 @@ if docker ps | grep -q ceseats-nginx; then
 fi
 
 # 7. 활성 포트 파일 업데이트
-echo "${DEPLOY_TO}" > "${ACTIVE_PORT_FILE}"
+echo "${DEPLOY_TO}" > "${ACTIVE_PORT_FILE}" 2>/dev/null || {
+    echo "⚠️  .active-port 파일 쓰기 권한이 없습니다."
+    echo "   해결 방법: sudo chown -R \$(whoami) ${DEPLOY_PATH} 또는 sudo chmod 777 ${DEPLOY_PATH}"
+    echo "   또는 수동으로 다음 명령 실행: echo '${DEPLOY_TO}' | sudo tee ${ACTIVE_PORT_FILE}"
+    # 권한 오류가 있어도 배포는 성공한 것으로 간주
+}
 
 echo "✅ Blue-Green 배포 완료!"
 echo "활성 환경: ${DEPLOY_TO} (포트: ${DEPLOY_PORT})"
