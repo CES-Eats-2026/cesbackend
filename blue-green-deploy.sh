@@ -79,25 +79,51 @@ docker run -d \
 
 # 5. 헬스 체크
 echo "5. 헬스 체크 중..."
-MAX_RETRIES=30
+MAX_RETRIES=60
 RETRY_COUNT=0
 HEALTH_CHECK_URL="http://localhost:${DEPLOY_PORT}/api/health"
 
+# 컨테이너가 실행 중인지 확인
+echo "컨테이너 상태 확인 중..."
+sleep 5
+if ! docker ps | grep -q ${DEPLOY_SERVICE}; then
+    echo "❌ 컨테이너가 실행되지 않았습니다"
+    docker logs ${DEPLOY_SERVICE} 2>/dev/null || echo "로그를 가져올 수 없습니다"
+    exit 1
+fi
+
+echo "헬스 체크 시작 (최대 ${MAX_RETRIES}회 시도, 각 3초 간격)..."
 while [ ${RETRY_COUNT} -lt ${MAX_RETRIES} ]; do
-    if curl -f ${HEALTH_CHECK_URL} > /dev/null 2>&1; then
-        echo "✅ ${DEPLOY_TO} 환경 헬스 체크 성공"
+    # curl로 헬스 체크 시도
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 ${HEALTH_CHECK_URL} 2>/dev/null || echo "000")
+    
+    if [ "${HTTP_CODE}" = "200" ]; then
+        echo "✅ ${DEPLOY_TO} 환경 헬스 체크 성공 (HTTP ${HTTP_CODE})"
         break
     fi
+    
     RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo "재시도 중... (${RETRY_COUNT}/${MAX_RETRIES})"
-    sleep 2
+    if [ $((RETRY_COUNT % 5)) -eq 0 ]; then
+        echo "재시도 중... (${RETRY_COUNT}/${MAX_RETRIES}) - HTTP 코드: ${HTTP_CODE}"
+        # 중간에 컨테이너 로그 확인
+        echo "--- 컨테이너 로그 (최근 20줄) ---"
+        docker logs --tail 20 ${DEPLOY_SERVICE} 2>/dev/null || echo "로그를 가져올 수 없습니다"
+        echo "--- 컨테이너 상태 ---"
+        docker ps | grep ${DEPLOY_SERVICE} || echo "컨테이너가 실행되지 않음"
+    fi
+    sleep 3
 done
 
 if [ ${RETRY_COUNT} -eq ${MAX_RETRIES} ]; then
-    echo "❌ ${DEPLOY_TO} 환경 헬스 체크 실패"
-    docker logs ${DEPLOY_SERVICE}
-    docker stop ${DEPLOY_SERVICE}
-    docker rm ${DEPLOY_SERVICE}
+    echo "❌ ${DEPLOY_TO} 환경 헬스 체크 실패 (${MAX_RETRIES}회 시도 후)"
+    echo "--- 최종 컨테이너 로그 ---"
+    docker logs --tail 50 ${DEPLOY_SERVICE} 2>/dev/null || echo "로그를 가져올 수 없습니다"
+    echo "--- 컨테이너 상태 ---"
+    docker ps -a | grep ${DEPLOY_SERVICE} || echo "컨테이너를 찾을 수 없음"
+    echo "--- 포트 확인 ---"
+    netstat -tuln | grep ${DEPLOY_PORT} || ss -tuln | grep ${DEPLOY_PORT} || echo "포트 ${DEPLOY_PORT}가 열려있지 않음"
+    docker stop ${DEPLOY_SERVICE} 2>/dev/null || true
+    docker rm ${DEPLOY_SERVICE} 2>/dev/null || true
     exit 1
 fi
 
