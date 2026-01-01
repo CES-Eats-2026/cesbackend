@@ -76,8 +76,21 @@ jobs:
           GABIA_DEPLOY_PATH: ${{ secrets.GABIA_DEPLOY_PATH }}
           GABIA_SSH_PORT: ${{ secrets.GABIA_SSH_PORT || '22' }}
         run: |
-          scp -P ${GABIA_SSH_PORT} .github/workflows/blue-green-deploy.sh ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/ 2>/dev/null || scp -P ${GABIA_SSH_PORT} blue-green-deploy.sh ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/
-          scp -P ${GABIA_SSH_PORT} nginx.conf ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/ 2>/dev/null || true
+          # 배포 스크립트 파일 확인 및 업로드
+          if [ -f "blue-green-deploy.sh" ]; then
+            scp -P ${GABIA_SSH_PORT} blue-green-deploy.sh ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/
+          else
+            echo "❌ blue-green-deploy.sh 파일을 찾을 수 없습니다"
+            ls -la
+            exit 1
+          fi
+          
+          # nginx.conf 파일 업로드 (있는 경우)
+          if [ -f "nginx.conf" ]; then
+            scp -P ${GABIA_SSH_PORT} nginx.conf ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/ || true
+          fi
+          
+          # 실행 권한 부여
           ssh -p ${GABIA_SSH_PORT} ${GABIA_USER}@${GABIA_HOST} "chmod +x ${GABIA_DEPLOY_PATH}/blue-green-deploy.sh"
 
       - name: Deploy with Blue-Green strategy
