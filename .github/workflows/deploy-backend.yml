@@ -69,6 +69,37 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -p ${GABIA_SSH_PORT} -H ${GABIA_HOST} >> ~/.ssh/known_hosts
 
+      - name: Prepare deployment directory
+        env:
+          GABIA_USER: ${{ secrets.GABIA_USER }}
+          GABIA_HOST: ${{ secrets.GABIA_HOST }}
+          GABIA_DEPLOY_PATH: ${{ secrets.GABIA_DEPLOY_PATH }}
+          GABIA_SSH_PORT: ${{ secrets.GABIA_SSH_PORT || '22' }}
+        run: |
+          # 배포 경로 생성 및 권한 설정
+          ssh -p ${GABIA_SSH_PORT} ${GABIA_USER}@${GABIA_HOST} bash << 'PREPARE_SCRIPT'
+            set -e
+            DEPLOY_PATH="${GABIA_DEPLOY_PATH}"
+            
+            # 배포 경로 생성 (없는 경우)
+            if [ ! -d "${DEPLOY_PATH}" ]; then
+              echo "배포 경로 생성 중: ${DEPLOY_PATH}"
+              sudo mkdir -p ${DEPLOY_PATH}
+              sudo chown ${USER}:${USER} ${DEPLOY_PATH}
+              sudo chmod 755 ${DEPLOY_PATH}
+            fi
+            
+            # 쓰기 권한 확인
+            if [ ! -w "${DEPLOY_PATH}" ]; then
+              echo "배포 경로에 쓰기 권한 부여 중..."
+              sudo chown ${USER}:${USER} ${DEPLOY_PATH}
+              sudo chmod 755 ${DEPLOY_PATH}
+            fi
+            
+            echo "✅ 배포 경로 준비 완료: ${DEPLOY_PATH}"
+            ls -ld ${DEPLOY_PATH}
+          PREPARE_SCRIPT
+
       - name: Upload deployment files
         env:
           GABIA_USER: ${{ secrets.GABIA_USER }}
@@ -76,9 +107,15 @@ jobs:
           GABIA_DEPLOY_PATH: ${{ secrets.GABIA_DEPLOY_PATH }}
           GABIA_SSH_PORT: ${{ secrets.GABIA_SSH_PORT || '22' }}
         run: |
+          # 현재 디렉토리 확인
+          pwd
+          ls -la blue-green-deploy.sh nginx.conf 2>/dev/null || echo "일부 파일이 없을 수 있습니다"
+          
           # 배포 스크립트 파일 확인 및 업로드
           if [ -f "blue-green-deploy.sh" ]; then
-            scp -P ${GABIA_SSH_PORT} blue-green-deploy.sh ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/
+            echo "blue-green-deploy.sh 업로드 중..."
+            scp -P ${GABIA_SSH_PORT} -v blue-green-deploy.sh ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/blue-green-deploy.sh
+            echo "✅ blue-green-deploy.sh 업로드 완료"
           else
             echo "❌ blue-green-deploy.sh 파일을 찾을 수 없습니다"
             ls -la
@@ -87,11 +124,15 @@ jobs:
           
           # nginx.conf 파일 업로드 (있는 경우)
           if [ -f "nginx.conf" ]; then
-            scp -P ${GABIA_SSH_PORT} nginx.conf ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/ || true
+            echo "nginx.conf 업로드 중..."
+            scp -P ${GABIA_SSH_PORT} nginx.conf ${GABIA_USER}@${GABIA_HOST}:${GABIA_DEPLOY_PATH}/nginx.conf || echo "⚠️  nginx.conf 업로드 실패 (계속 진행)"
+          else
+            echo "⚠️  nginx.conf 파일이 없습니다 (선택사항)"
           fi
           
           # 실행 권한 부여
-          ssh -p ${GABIA_SSH_PORT} ${GABIA_USER}@${GABIA_HOST} "chmod +x ${GABIA_DEPLOY_PATH}/blue-green-deploy.sh"
+          echo "실행 권한 부여 중..."
+          ssh -p ${GABIA_SSH_PORT} ${GABIA_USER}@${GABIA_HOST} "chmod +x ${GABIA_DEPLOY_PATH}/blue-green-deploy.sh && ls -la ${GABIA_DEPLOY_PATH}/blue-green-deploy.sh"
 
       - name: Deploy with Blue-Green strategy
         env:
