@@ -42,7 +42,10 @@ public class GooglePlacesClient {
      */
     public List<String> searchNearbyPlaces(double latitude, double longitude, int radius) {
         if (apiKey == null || apiKey.isEmpty()) {
-            System.out.println("Warning: Google Places API key is not set.");
+            System.err.println("⚠️  Warning: Google Places API key is not set.");
+            System.err.println("   환경 변수 GOOGLE_PLACES_API_KEY를 설정해주세요.");
+            System.err.println("   로컬: export GOOGLE_PLACES_API_KEY=your_api_key");
+            System.err.println("   프로덕션: GitHub Secrets 또는 서버 환경 변수에 설정 필요");
             return new ArrayList<>();
         }
 

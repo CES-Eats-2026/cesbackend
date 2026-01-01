@@ -1,3 +1,8 @@
 target/
 *.jar
 *.class
+
+# 환경 변수 파일 (민감 정보 포함)
+.env
+.env.local
+.env.*.local
