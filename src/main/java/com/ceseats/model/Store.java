@@ -6,7 +6,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "stores")
+@Table(name = "stores", indexes = {
+    @Index(name = "idx_place_id", columnList = "placeId")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -14,6 +16,9 @@ public class Store {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(nullable = false, unique = true)
+    private String placeId; // Google Places place_id
 
     @Column(nullable = false)
     private String name;

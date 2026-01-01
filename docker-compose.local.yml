@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ceseats-postgres-local
+    environment:
+      POSTGRES_DB: ceseats
+      POSTGRES_USER: ceseats
+      POSTGRES_PASSWORD: ceseats
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_local_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ceseats"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_local_data:
+

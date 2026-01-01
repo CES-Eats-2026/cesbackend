@@ -112,7 +112,8 @@ public class RecommendationService {
                 place.getAddress(),
                 place.getPhotos(), // 사진 URL 리스트
                 reviewDtos, // 리뷰 리스트
-                place.getViewCount() != null ? place.getViewCount().intValue() : 0 // 조회수
+                place.getViewCount() != null ? place.getViewCount().intValue() : 0, // 조회수
+                place.getViewCountIncrease() != null ? place.getViewCountIncrease() : 0L // 최근 10분 증가량
         );
         return response;
     }

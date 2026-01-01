@@ -1,140 +1,103 @@
-# 배포 전 확인 체크리스트
+# 배포 체크리스트
 
-## 1. 사전 확인 스크립트 실행
+## 배포 전 확인사항
 
+### 1. 환경 변수 확인
 ```bash
-cd backend
-./pre-deployment-check.sh [gabia-user]@[gabia-host] [deploy-path]
+# 필수 환경 변수
+GOOGLE_PLACES_API_KEY=your_key_here
+DATABASE_PASSWORD=your_password_here
+
+# 선택사항
+OPENAI_API_KEY=your_key_here (CES 이유 생성용)
+CORS_ALLOWED_ORIGINS=https://cesfront.vercel.app
+
+# 참고: DATABASE_URL과 DATABASE_USERNAME은 스크립트에서 자동 설정됨
+# - DATABASE_URL: jdbc:postgresql://ceseats-postgres:5432/ceseats (같은 Docker 네트워크)
+# - DATABASE_USERNAME: ceseats (기본값)
 ```
 
-예시:
+### 2. 데이터베이스 백업 (기존 데이터가 있는 경우)
 ```bash
-./pre-deployment-check.sh ubuntu@123.456.789.0 /opt/ceseats
+# PostgreSQL 백업
+docker exec ceseats-postgres pg_dump -U ceseats ceseats > backup_$(date +%Y%m%d_%H%M%S).sql
 ```
 
-## 2. 수동 확인 사항
-
-### ✅ GitHub Secrets 설정 확인
-- [ ] `DOCKER_USERNAME` - Docker Hub 사용자명
-- [ ] `DOCKER_PASSWORD` - Docker Hub 비밀번호 또는 Access Token
-- [ ] `GABIA_HOST` - 가비아 서버 주소
-- [ ] `GABIA_USER` - SSH 사용자명
-- [ ] `GABIA_SSH_KEY` - SSH Private Key
-- [ ] `GABIA_DEPLOY_PATH` - 배포 경로
-- [ ] `GOOGLE_PLACES_API_KEY` - Google Places API 키
-- [ ] `OPENAI_API_KEY` - OpenAI API 키 (선택사항)
-
-### ✅ 서버 환경 확인
-- [ ] Docker 설치 확인: `docker --version`
-- [ ] Docker 실행 권한 확인: `docker ps`
-- [ ] 배포 경로 생성 및 권한 확인
-- [ ] 포트 8080, 8081 사용 가능 확인
-- [ ] 디스크 공간 충분한지 확인
-
-### ✅ 네트워크 및 보안
-- [ ] SSH 접속 테스트
-- [ ] 방화벽 설정 확인 (포트 8080, 8081 열림)
-- [ ] 클라우드 보안 그룹 설정 확인 (가비아)
-
-### ✅ Docker Hub 확인
-- [ ] Docker Hub 로그인 테스트: `docker login`
-- [ ] 이미지 푸시 권한 확인
-
-## 3. 첫 배포 테스트
-
-### 방법 1: GitHub Actions를 통한 자동 배포
-1. `main` 브랜치에 코드 푸시
-2. GitHub Actions 탭에서 워크플로우 실행 확인
-3. 배포 로그 확인
-
-### 방법 2: 수동 배포 테스트
+### 3. 배포 스크립트 실행
 ```bash
-# 서버에 SSH 접속
-ssh [gabia-user]@[gabia-host]
+# 1. 사전 확인
+./pre-deployment-check.sh [user]@[host] [deploy-path] [ssh-key]
 
-# 배포 스크립트 다운로드 및 실행
-cd /opt/ceseats
-export DOCKER_USERNAME=your-dockerhub-username
-export GOOGLE_PLACES_API_KEY=your-api-key
-export OPENAI_API_KEY=your-openai-key
-./blue-green-deploy.sh
+# 2. Blue-Green 배포
+./blue-green-deploy.sh [blue|green]
 ```
 
-## 4. 배포 후 확인
+## 배포 후 확인사항
 
-### 헬스 체크
+### 1. 헬스 체크
 ```bash
-curl http://[gabia-host]/api/health
+curl http://your-server/api/health
 ```
 
-### 컨테이너 상태 확인
+### 2. 데이터베이스 스키마 확인
 ```bash
-ssh [gabia-user]@[gabia-host] "docker ps | grep ceseats"
+# PostgreSQL에 접속하여 테이블 구조 확인
+docker exec -it ceseats-postgres psql -U ceseats -d ceseats
+
+# PlaceView 테이블 구조 확인
+\d place_views
+
+# 새 컬럼 확인
+SELECT column_name, data_type, is_nullable 
+FROM information_schema.columns 
+WHERE table_name = 'place_views';
 ```
 
-### 활성 환경 확인
+### 3. 스케줄러 동작 확인
 ```bash
-ssh [gabia-user]@[gabia-host] "cat /opt/ceseats/.active-port"
+# 애플리케이션 로그에서 스케줄러 실행 확인
+docker logs ceseats-blue | grep "Updated 10-minute snapshots"
 ```
 
-### 로그 확인
+### 4. API 동작 확인
 ```bash
-# Blue 환경 로그
-ssh [gabia-user]@[gabia-host] "docker logs ceseats-blue"
+# 추천 API 테스트
+curl -X POST http://your-server/api/recommendations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "latitude": 36.1147,
+    "longitude": -115.1728,
+    "timeOption": "30",
+    "type": "all"
+  }'
 
-# Green 환경 로그
-ssh [gabia-user]@[gabia-host] "docker logs ceseats-green"
+# 조회수 증가 API 테스트
+curl -X POST http://your-server/api/places/{placeId}/view
 ```
 
-## 5. 문제 해결
+### 5. 실시간 조회수 급상승 기능 확인
+- 프론트엔드에서 장소 클릭 시 조회수 증가 확인
+- "실시간 조회수 급상승" 컴포넌트에서 증가량 표시 확인
+- 10분 후 스케줄러가 스냅샷 업데이트하는지 확인
 
-### Docker 실행 권한 오류
+## 롤백 방법
+
+### 문제 발생 시 롤백
 ```bash
-sudo usermod -aG docker $USER
-# 로그아웃 후 다시 로그인
+# 이전 버전으로 전환
+./blue-green-deploy.sh [blue|green]  # 현재 활성과 반대 환경으로 배포
 ```
 
-### 포트 충돌
+### 데이터베이스 롤백 (필요한 경우)
 ```bash
-# 사용 중인 포트 확인
-sudo lsof -i :8080
-sudo lsof -i :8081
-
-# 프로세스 종료 (필요한 경우)
-sudo kill -9 [PID]
+# 백업 파일로 복원
+docker exec -i ceseats-postgres psql -U ceseats ceseats < backup_YYYYMMDD_HHMMSS.sql
 ```
 
-### 디스크 공간 부족
-```bash
-# 사용하지 않는 Docker 이미지/컨테이너 정리
-docker system prune -a
-```
+## 주의사항
 
-### 방화벽 설정
-```bash
-# UFW 사용 시
-sudo ufw allow 8080/tcp
-sudo ufw allow 8081/tcp
-sudo ufw reload
-
-# firewalld 사용 시
-sudo firewall-cmd --permanent --add-port=8080/tcp
-sudo firewall-cmd --permanent --add-port=8081/tcp
-sudo firewall-cmd --reload
-```
-
-## 6. 롤백 방법
-
-문제 발생 시 이전 환경으로 즉시 롤백:
-
-```bash
-ssh [gabia-user]@[gabia-host]
-cd /opt/ceseats
-
-# 현재 활성 환경 확인
-cat .active-port
-
-# 반대 환경으로 전환
-./blue-green-deploy.sh blue  # 또는 green
-```
+1. **데이터 손실 방지:** 배포 전 반드시 데이터베이스 백업
+2. **환경 변수 확인:** 프로덕션 환경 변수가 올바르게 설정되었는지 확인
+3. **점진적 배포:** Blue-Green 배포 방식으로 무중단 배포 권장
+4. **모니터링:** 배포 후 최소 10분간 로그 모니터링 권장
 

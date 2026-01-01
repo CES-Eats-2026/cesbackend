@@ -66,6 +66,42 @@ docker rm ${DEPLOY_SERVICE} 2>/dev/null || true
 echo "3. Docker 네트워크 확인 중..."
 docker network create ceseats-network 2>/dev/null || true
 
+# 3-1. PostgreSQL 컨테이너 확인 및 시작
+echo "3-1. PostgreSQL 컨테이너 확인 중..."
+POSTGRES_DATA_DIR="${POSTGRES_DATA_DIR:-/mnt/blockstorage/postgresql}"
+
+# 블록 스토리지 디렉토리 생성 및 권한 설정
+if [ ! -d "${POSTGRES_DATA_DIR}" ]; then
+    echo "블록 스토리지 디렉토리 생성 중: ${POSTGRES_DATA_DIR}"
+    sudo mkdir -p ${POSTGRES_DATA_DIR}
+    sudo chown 999:999 ${POSTGRES_DATA_DIR}  # PostgreSQL 컨테이너의 postgres 사용자 UID/GID
+    sudo chmod 700 ${POSTGRES_DATA_DIR}
+fi
+
+if ! docker ps | grep -q ceseats-postgres; then
+    if docker ps -a | grep -q ceseats-postgres; then
+        echo "기존 PostgreSQL 컨테이너 시작 중..."
+        docker start ceseats-postgres
+    else
+        echo "PostgreSQL 컨테이너 생성 중..."
+        echo "데이터 저장 경로: ${POSTGRES_DATA_DIR}"
+        docker run -d \
+            --name ceseats-postgres \
+            -e POSTGRES_DB=ceseats \
+            -e POSTGRES_USER=ceseats \
+            -e POSTGRES_PASSWORD=${DATABASE_PASSWORD:-ceseats} \
+            -p 5432:5432 \
+            --restart unless-stopped \
+            --network ceseats-network \
+            -v ${POSTGRES_DATA_DIR}:/var/lib/postgresql/data \
+            postgres:15-alpine
+        echo "PostgreSQL 초기화 대기 중..."
+        sleep 10
+    fi
+else
+    echo "✅ PostgreSQL 컨테이너 실행 중"
+fi
+
 # 4. 새 컨테이너 실행
 echo "4. 새 ${DEPLOY_TO} 컨테이너 시작 중..."
 docker run -d \
@@ -73,6 +109,9 @@ docker run -d \
     -p ${DEPLOY_PORT}:8080 \
     -e GOOGLE_PLACES_API_KEY="${GOOGLE_PLACES_API_KEY}" \
     -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
+    -e DATABASE_URL="jdbc:postgresql://ceseats-postgres:5432/ceseats" \
+    -e DATABASE_USERNAME="${DATABASE_USERNAME:-ceseats}" \
+    -e DATABASE_PASSWORD="${DATABASE_PASSWORD:-ceseats}" \
     --restart unless-stopped \
     --network ceseats-network \
     ${IMAGE_NAME}
@@ -121,23 +160,41 @@ if [ ${RETRY_COUNT} -eq ${MAX_RETRIES} ]; then
     echo "--- 컨테이너 상태 ---"
     docker ps -a | grep ${DEPLOY_SERVICE} || echo "컨테이너를 찾을 수 없음"
     echo "--- 포트 확인 ---"
-    netstat -tuln | grep ${DEPLOY_PORT} || ss -tuln | grep ${DEPLOY_PORT} || echo "포트 ${DEPLOY_PORT}가 열려있지 않음"
+    (netstat -tuln 2>/dev/null | grep ${DEPLOY_PORT} || ss -tuln 2>/dev/null | grep ${DEPLOY_PORT} || echo "포트 ${DEPLOY_PORT}가 열려있지 않음") || true
     docker stop ${DEPLOY_SERVICE} 2>/dev/null || true
     docker rm ${DEPLOY_SERVICE} 2>/dev/null || true
     exit 1
 fi
 
-# 6. Nginx 설정 업데이트 (Nginx가 있는 경우)
+# 6. Nginx 컨테이너 확인 및 생성/업데이트
 echo "6. 트래픽 전환 중..."
+if ! docker ps | grep -q ceseats-nginx; then
+    # Nginx 컨테이너가 없으면 생성
+    if [ -f "${NGINX_CONF}" ]; then
+        echo "Nginx 컨테이너 생성 중..."
+        docker run -d \
+            --name ceseats-nginx \
+            -p 80:80 \
+            --restart unless-stopped \
+            --network ceseats-network \
+            -v ${NGINX_CONF}:/etc/nginx/nginx.conf:ro \
+            nginx:alpine
+        echo "✅ Nginx 컨테이너 생성 완료"
+        sleep 2
+    else
+        echo "⚠️  Nginx 설정 파일이 없습니다: ${NGINX_CONF}"
+        echo "⚠️  트래픽 전환은 수동으로 설정해야 합니다."
+    fi
+fi
+
+# Nginx 설정 업데이트
 if docker ps | grep -q ceseats-nginx; then
     if [ -f "${NGINX_CONF}" ]; then
         # nginx.conf에서 upstream 서버 변경
         sed -i.bak "s/server ceseats-.*:8080;/server ${NGINX_UPSTREAM};/" ${NGINX_CONF}
         docker exec ceseats-nginx nginx -s reload
-        echo "✅ Nginx 설정 업데이트 완료"
+        echo "✅ Nginx 설정 업데이트 완료 (트래픽 전환: ${NGINX_UPSTREAM})"
     fi
-else
-    echo "⚠️  Nginx 컨테이너가 없습니다. 트래픽 전환은 수동으로 설정해야 합니다."
 fi
 
 # 7. 활성 포트 파일 업데이트

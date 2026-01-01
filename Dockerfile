@@ -14,12 +14,14 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-# Create app user
+# Create app user and data directory
 RUN addgroup -S spring && adduser -S spring -G spring
-USER spring:spring
+RUN mkdir -p /app/data && chown -R spring:spring /app/data
 
 # Copy JAR from build stage
 COPY --from=build /app/target/ces-eats-backend-0.0.1-SNAPSHOT.jar app.jar
+
+USER spring:spring
 
 # Expose port
 EXPOSE 8080

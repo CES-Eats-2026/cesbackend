@@ -40,11 +40,21 @@ public class PlaceController {
     /**
      * 장소 조회수 증가 API (카드 표시 또는 클릭 시)
      * POST /api/places/{placeId}/view
+     * @return 업데이트된 조회수
      */
     @PostMapping("/{placeId}/view")
-    public ResponseEntity<Void> incrementViewCount(@PathVariable String placeId) {
-        placeService.incrementViewCount(placeId);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<Long> incrementViewCount(@PathVariable String placeId) {
+        try {
+            if (placeId == null || placeId.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            Long updatedViewCount = placeService.incrementViewCount(placeId);
+            return ResponseEntity.ok(updatedViewCount);
+        } catch (Exception e) {
+            System.err.println("Error incrementing view count for placeId: " + placeId + " - " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
     }
 }
 

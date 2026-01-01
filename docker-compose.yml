@@ -1,6 +1,27 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ceseats-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ceseats}
+      POSTGRES_USER: ${POSTGRES_USER:-ceseats}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ceseats}
+    volumes:
+      # 가비아 블록 스토리지 경로 (환경 변수로 설정 가능)
+      - ${POSTGRES_DATA_DIR:-/mnt/blockstorage/postgresql}:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ceseats}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ceseats-network
+
   ceseats-blue:
     image: ${DOCKER_USERNAME:-your-username}/ces-eats-backend:latest
     container_name: ceseats-blue
@@ -10,6 +31,12 @@ services:
       - GOOGLE_PLACES_API_KEY=${GOOGLE_PLACES_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - SPRING_PROFILES_ACTIVE=prod
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ceseats}
+      - DATABASE_USERNAME=${POSTGRES_USER:-ceseats}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-ceseats}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
@@ -29,6 +56,12 @@ services:
       - GOOGLE_PLACES_API_KEY=${GOOGLE_PLACES_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - SPRING_PROFILES_ACTIVE=prod
+      - DATABASE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ceseats}
+      - DATABASE_USERNAME=${POSTGRES_USER:-ceseats}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-ceseats}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]

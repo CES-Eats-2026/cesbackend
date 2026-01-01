@@ -30,6 +30,7 @@ public class PlaceResponse {
     private String googleMapUrl; // Google Maps direction URL
     private String hookMessage; // 마케팅 Hook 메시지
     private Long viewCount; // 조회수
+    private Long viewCountIncrease; // 최근 10분 동안의 조회수 증가량
     private Double latitude;
     private Double longitude;
     private String address;

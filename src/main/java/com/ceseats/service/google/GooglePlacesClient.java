@@ -9,7 +9,12 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Google Places API 클라이언트 래퍼
@@ -41,104 +46,82 @@ public class GooglePlacesClient {
             return new ArrayList<>();
         }
 
-        List<String> allPlaceIds = new ArrayList<>();
-        
-        // 모든 타입의 장소를 가져오기 위해 여러 타입을 각각 호출
-        // Google Places API는 type 파라미터 없이 호출하면 제한된 결과만 반환하므로
-        // 가능한 모든 타입을 포함하여 호출
+        // 핵심 타입만 사용하여 성능 개선 (음식 관련 타입 위주)
+        // 타입을 줄여서 API 호출 수 감소 및 병렬 처리로 속도 개선
         String[] types = {
-            // 음식 관련
-            "restaurant", "cafe", "meal_takeaway", "bar", "food", "bakery", "meal_delivery",
-            // 쇼핑 관련
-            "store", "shopping_mall", "supermarket", "convenience_store", "clothing_store", "shoe_store",
-            // 엔터테인먼트
-            "night_club", "movie_theater", "amusement_park", "zoo", "museum", "art_gallery",
-            // 기타
-            "liquor_store", "gas_station", "parking", "lodging", "tourist_attraction",
-            "point_of_interest", "establishment" // 일반 POI
+            // 음식 관련 (핵심)
+            "restaurant", "cafe", "meal_takeaway", "bar", "food", "bakery",
+            // 쇼핑 관련 (필수)
+            "store", "shopping_mall", "supermarket", "convenience_store"
         };
         
+        // 병렬 처리를 위한 ExecutorService
+        ExecutorService executorService = Executors.newFixedThreadPool(Math.min(types.length, 10));
+        List<CompletableFuture<List<String>>> futures = new ArrayList<>();
+        
         for (String type : types) {
-            try {
-                UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromHttpUrl(PLACES_API_BASE_URL)
-                        .queryParam("location", latitude + "," + longitude)
-                        .queryParam("radius", radius)
-                        .queryParam("type", type)
-                        .queryParam("key", apiKey);
+            CompletableFuture<List<String>> future = CompletableFuture.supplyAsync(() -> {
+                List<String> placeIds = new ArrayList<>();
+                try {
+                    UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromHttpUrl(PLACES_API_BASE_URL)
+                            .queryParam("location", latitude + "," + longitude)
+                            .queryParam("radius", radius)
+                            .queryParam("type", type)
+                            .queryParam("key", apiKey);
 
-                ResponseEntity<String> response = restTemplate.getForEntity(uriBuilder.toUriString(), String.class);
+                    ResponseEntity<String> response = restTemplate.getForEntity(uriBuilder.toUriString(), String.class);
 
-                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    JsonNode root = objectMapper.readTree(response.getBody());
-                    JsonNode results = root.get("results");
+                    if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                        JsonNode root = objectMapper.readTree(response.getBody());
+                        JsonNode results = root.get("results");
 
-                    if (results != null && results.isArray()) {
-                        for (JsonNode result : results) {
-                            if (result.has("place_id")) {
-                                String placeId = result.get("place_id").asText();
-                                if (!allPlaceIds.contains(placeId)) {
-                                    allPlaceIds.add(placeId);
-                                }
-                            }
-                        }
-                    }
-                    
-                    // next_page_token이 있으면 다음 페이지도 가져오기 (각 타입당 최대 2페이지)
-                    JsonNode nextPageToken = root.get("next_page_token");
-                    int pageCount = 1;
-                    while (nextPageToken != null && nextPageToken.asText() != null && !nextPageToken.asText().isEmpty() && pageCount < 2) {
-                        try {
-                            // next_page_token 사용 시 약간의 지연 필요 (Google API 요구사항)
-                            Thread.sleep(2000);
-                            
-                            UriComponentsBuilder nextPageBuilder = UriComponentsBuilder.fromHttpUrl(PLACES_API_BASE_URL)
-                                    .queryParam("pagetoken", nextPageToken.asText())
-                                    .queryParam("key", apiKey);
-                            
-                            ResponseEntity<String> nextResponse = restTemplate.getForEntity(nextPageBuilder.toUriString(), String.class);
-                            
-                            if (nextResponse.getStatusCode().is2xxSuccessful() && nextResponse.getBody() != null) {
-                                JsonNode nextRoot = objectMapper.readTree(nextResponse.getBody());
-                                JsonNode nextResults = nextRoot.get("results");
-                                
-                                if (nextResults != null && nextResults.isArray()) {
-                                    for (JsonNode result : nextResults) {
-                                        if (result.has("place_id")) {
-                                            String placeId = result.get("place_id").asText();
-                                            if (!allPlaceIds.contains(placeId)) {
-                                                allPlaceIds.add(placeId);
-                                            }
-                                        }
+                        if (results != null && results.isArray()) {
+                            for (JsonNode result : results) {
+                                if (result.has("place_id")) {
+                                    String placeId = result.get("place_id").asText();
+                                    if (!placeIds.contains(placeId)) {
+                                        placeIds.add(placeId);
                                     }
                                 }
-                                
-                                nextPageToken = nextRoot.get("next_page_token");
-                                pageCount++;
-                            } else {
-                                break;
                             }
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        } catch (Exception e) {
-                            System.err.println("Error fetching next page for type " + type + ": " + e.getMessage());
-                            break;
                         }
+                        
+                        // 첫 페이지만 가져오기 (성능 개선을 위해 next_page_token 사용 안 함)
+                        // 필요시 주석 해제하여 사용
+                        /*
+                        JsonNode nextPageToken = root.get("next_page_token");
+                        if (nextPageToken != null && nextPageToken.asText() != null && !nextPageToken.asText().isEmpty()) {
+                            try {
+                                Thread.sleep(2000); // Google API 요구사항
+                                // 다음 페이지 로직...
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                        */
                     }
+                } catch (Exception e) {
+                    System.err.println("Error fetching places from Google Places API (type: " + type + "): " + e.getMessage());
                 }
-                
-                // API 호출 제한을 피하기 위해 약간의 지연
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                System.err.println("Error fetching places from Google Places API (type: " + type + "): " + e.getMessage());
-                // 에러가 발생해도 다음 타입 계속 시도
-            }
+                return placeIds;
+            }, executorService);
+            futures.add(future);
         }
 
-        return allPlaceIds;
+        // 모든 병렬 작업 완료 대기 및 결과 수집
+        Set<String> allPlaceIdsSet = new HashSet<>();
+        for (CompletableFuture<List<String>> future : futures) {
+            try {
+                List<String> placeIds = future.join();
+                allPlaceIdsSet.addAll(placeIds);
+            } catch (Exception e) {
+                System.err.println("Error joining future: " + e.getMessage());
+            }
+        }
+        
+        executorService.shutdown();
+        
+        return new ArrayList<>(allPlaceIdsSet);
     }
 
     /**
