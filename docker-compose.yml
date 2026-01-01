@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  ceseats-blue:
+    image: ${DOCKER_USERNAME:-your-username}/ces-eats-backend:latest
+    container_name: ceseats-blue
+    ports:
+      - "8080:8080"
+    environment:
+      - GOOGLE_PLACES_API_KEY=${GOOGLE_PLACES_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SPRING_PROFILES_ACTIVE=prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ceseats-network
+
+  ceseats-green:
+    image: ${DOCKER_USERNAME:-your-username}/ces-eats-backend:latest
+    container_name: ceseats-green
+    ports:
+      - "8081:8080"
+    environment:
+      - GOOGLE_PLACES_API_KEY=${GOOGLE_PLACES_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SPRING_PROFILES_ACTIVE=prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ceseats-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: ceseats-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - ceseats-blue
+      - ceseats-green
+    restart: unless-stopped
+    networks:
+      - ceseats-network
+
+networks:
+  ceseats-network:
+    driver: bridge
+
