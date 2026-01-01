@@ -219,7 +219,21 @@ echo "${DEPLOY_TO}" > "${ACTIVE_PORT_FILE}" 2>/dev/null || {
     # 권한 오류가 있어도 배포는 성공한 것으로 간주
 }
 
+# 8. 기존 활성 애플리케이션 컨테이너 정리 (트래픽 전환 완료 후)
+# 참고: PostgreSQL 컨테이너(ceseats-postgres)는 데이터베이스이므로 정리하지 않음
+echo "8. 기존 활성 애플리케이션 컨테이너 정리 중..."
+if docker ps | grep -q "${CURRENT_SERVICE}"; then
+    echo "기존 ${CURRENT_SERVICE} 컨테이너 중지 및 제거 중..."
+    docker stop ${CURRENT_SERVICE} 2>/dev/null || true
+    docker rm ${CURRENT_SERVICE} 2>/dev/null || true
+    echo "✅ 기존 ${CURRENT_SERVICE} 컨테이너 정리 완료"
+else
+    echo "기존 ${CURRENT_SERVICE} 컨테이너가 없습니다."
+fi
+
 echo "✅ Blue-Green 배포 완료!"
 echo "활성 환경: ${DEPLOY_TO} (포트: ${DEPLOY_PORT})"
+echo ""
+echo "현재 실행 중인 컨테이너:"
 docker ps | grep ceseats
 
