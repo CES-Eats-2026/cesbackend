@@ -7,11 +7,15 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.http.converter.FormHttpMessageConverter;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -22,8 +26,25 @@ public class FeedbackService {
     @Value("${discord.webhook.url:}")
     private String webhookUrl;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    
+    public FeedbackService() {
+        // multipart/form-data를 지원하도록 RestTemplate 설정
+        this.restTemplate = new RestTemplate();
+        this.restTemplate.setMessageConverters(Arrays.asList(
+            new FormHttpMessageConverter(),
+            new MappingJackson2HttpMessageConverter()
+        ));
+        // HttpComponentsClientHttpRequestFactory를 사용하여 multipart 파일 업로드 지원
+        try {
+            this.restTemplate.setRequestFactory(new HttpComponentsClientHttpRequestFactory());
+            System.out.println("HttpComponentsClientHttpRequestFactory를 사용하여 multipart 전송을 지원합니다.");
+        } catch (Exception e) {
+            System.out.println("HttpComponentsClientHttpRequestFactory를 사용할 수 없습니다. 기본 RequestFactory를 사용합니다.");
+            System.out.println("오류: " + e.getMessage());
+        }
+    }
 
     public void sendFeedbackToDiscord(String feedback, String imageBase64, String imageName) {
         System.out.println("=== 피드백 전송 시도 ===");
@@ -88,15 +109,16 @@ public class FeedbackService {
                     body.add("payload_json", payloadJson);
                     
                     // 이미지 파일을 files[0]로 추가
+                    // Discord는 파일을 첨부할 때 Content-Type을 자동으로 감지하므로 명시하지 않음
                     ByteArrayResource imageResource = new ByteArrayResource(imageBytes) {
                         @Override
                         public String getFilename() {
                             return fileName;
                         }
                     };
-                    body.add("files[0]", imageResource);
                     
-                    headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+                    // HttpHeaders에 Content-Type을 설정하지 않고, Spring이 자동으로 multipart/form-data로 설정하도록 함
+                    // headers는 비워두고 body만 전달하면 Spring이 자동으로 multipart로 변환
                     request = new HttpEntity<>(body, headers);
                 } catch (Exception e) {
                     System.err.println("이미지 처리 중 오류 발생: " + e.getMessage());
