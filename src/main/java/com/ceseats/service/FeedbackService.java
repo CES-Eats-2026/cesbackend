@@ -7,7 +7,9 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.stereotype.Service;
@@ -36,13 +38,30 @@ public class FeedbackService {
             new FormHttpMessageConverter(),
             new MappingJackson2HttpMessageConverter()
         ));
+        
         // HttpComponentsClientHttpRequestFactory를 사용하여 multipart 파일 업로드 지원
+        ClientHttpRequestFactory requestFactory = null;
         try {
-            this.restTemplate.setRequestFactory(new HttpComponentsClientHttpRequestFactory());
-            System.out.println("HttpComponentsClientHttpRequestFactory를 사용하여 multipart 전송을 지원합니다.");
+            requestFactory = new HttpComponentsClientHttpRequestFactory();
+            System.out.println("✓ HttpComponentsClientHttpRequestFactory를 사용하여 multipart 전송을 지원합니다.");
+        } catch (NoClassDefFoundError | ExceptionInInitializerError e) {
+            System.err.println("✗ HttpComponentsClientHttpRequestFactory 클래스를 찾을 수 없습니다.");
+            System.err.println("httpclient5 의존성이 포함되어 있는지 확인하세요.");
+            System.err.println("오류: " + e.getClass().getName() + " - " + e.getMessage());
+            // Fallback: SimpleClientHttpRequestFactory 사용 (multipart 지원 제한적)
+            requestFactory = new SimpleClientHttpRequestFactory();
+            System.out.println("⚠ SimpleClientHttpRequestFactory를 사용합니다. multipart 전송이 제한될 수 있습니다.");
         } catch (Exception e) {
-            System.out.println("HttpComponentsClientHttpRequestFactory를 사용할 수 없습니다. 기본 RequestFactory를 사용합니다.");
-            System.out.println("오류: " + e.getMessage());
+            System.err.println("✗ HttpComponentsClientHttpRequestFactory 초기화 실패: " + e.getMessage());
+            System.err.println("오류 타입: " + e.getClass().getName());
+            e.printStackTrace();
+            // Fallback: SimpleClientHttpRequestFactory 사용
+            requestFactory = new SimpleClientHttpRequestFactory();
+            System.out.println("⚠ SimpleClientHttpRequestFactory를 사용합니다. multipart 전송이 제한될 수 있습니다.");
+        }
+        
+        if (requestFactory != null) {
+            this.restTemplate.setRequestFactory(requestFactory);
         }
     }
 
@@ -81,9 +100,10 @@ public class FeedbackService {
 
             HttpHeaders headers = new HttpHeaders();
             HttpEntity<?> request;
+            boolean hasImage = imageBase64 != null && !imageBase64.isEmpty();
             
             // 이미지가 있는 경우 multipart/form-data로 전송
-            if (imageBase64 != null && !imageBase64.isEmpty()) {
+            if (hasImage) {
                 System.out.println("이미지 포함하여 전송합니다. 이미지 이름: " + imageName);
                 
                 try {
@@ -107,9 +127,20 @@ public class FeedbackService {
                     // JSON payload를 payload_json 필드로 추가
                     String payloadJson = objectMapper.writeValueAsString(payload);
                     body.add("payload_json", payloadJson);
+                    System.out.println("payload_json: " + payloadJson);
                     
                     // 이미지 파일을 files[0]로 추가
-                    // Discord는 파일을 첨부할 때 Content-Type을 자동으로 감지하므로 명시하지 않음
+                    // Discord는 파일에 적절한 Content-Type이 필요함
+                    String contentType = "image/png"; // 기본값
+                    if (fileExtension.equals("jpg") || fileExtension.equals("jpeg")) {
+                        contentType = "image/jpeg";
+                    } else if (fileExtension.equals("gif")) {
+                        contentType = "image/gif";
+                    } else if (fileExtension.equals("webp")) {
+                        contentType = "image/webp";
+                    }
+                    
+                    // ByteArrayResource를 직접 사용 (Spring이 자동으로 multipart로 변환)
                     ByteArrayResource imageResource = new ByteArrayResource(imageBytes) {
                         @Override
                         public String getFilename() {
@@ -117,15 +148,22 @@ public class FeedbackService {
                         }
                     };
                     
-                    // HttpHeaders에 Content-Type을 설정하지 않고, Spring이 자동으로 multipart/form-data로 설정하도록 함
-                    // headers는 비워두고 body만 전달하면 Spring이 자동으로 multipart로 변환
+                    // 파일을 직접 추가 (Spring의 FormHttpMessageConverter가 자동으로 처리)
+                    body.add("files[0]", imageResource);
+                    
+                    System.out.println("Multipart body 생성 완료. 파일명: " + fileName + ", Content-Type: " + contentType);
+                    
+                    // HttpHeaders에 Content-Type을 명시적으로 설정하지 않음
+                    // Spring이 자동으로 multipart/form-data로 설정하도록 함
                     request = new HttpEntity<>(body, headers);
+                    
+                    System.out.println("Multipart 요청 준비 완료. 전송 시도...");
                 } catch (Exception e) {
-                    System.err.println("이미지 처리 중 오류 발생: " + e.getMessage());
+                    System.err.println("✗ 이미지 처리 중 오류 발생: " + e.getMessage());
+                    System.err.println("오류 타입: " + e.getClass().getName());
                     e.printStackTrace();
-                    // 이미지 처리 실패 시 이미지 없이 전송
-                    headers.setContentType(MediaType.APPLICATION_JSON);
-                    request = new HttpEntity<>(payload, headers);
+                    // 이미지 처리 실패 시 예외를 던져서 사용자에게 알림
+                    throw new RuntimeException("이미지 처리 중 오류가 발생했습니다: " + e.getMessage(), e);
                 }
             } else {
                 // 이미지가 없는 경우 일반 JSON으로 전송
@@ -134,20 +172,38 @@ public class FeedbackService {
                 request = new HttpEntity<>(payload, headers);
             }
 
-            ResponseEntity<String> response = restTemplate.postForEntity(webhookUrl, request, String.class);
-
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                String errorMessage = "Discord 웹훅 전송 실패: " + response.getStatusCode();
-                if (response.getBody() != null) {
-                    errorMessage += " - " + response.getBody();
+            // Discord 웹훅 응답 처리
+            // 이미지가 포함된 경우: 204 No Content (응답 본문 없음)
+            // 이미지가 없는 경우: 200 OK (JSON 응답)
+            if (hasImage) {
+                // 이미지가 있는 경우 Void로 응답 처리 (204 No Content)
+                ResponseEntity<Void> response = restTemplate.postForEntity(webhookUrl, request, Void.class);
+                
+                if (!response.getStatusCode().is2xxSuccessful()) {
+                    String errorMessage = "Discord 웹훅 전송 실패: " + response.getStatusCode();
+                    System.err.println(errorMessage);
+                    throw new RuntimeException(errorMessage);
                 }
-                System.err.println(errorMessage);
-                throw new RuntimeException(errorMessage);
+                
+                System.out.println("✓ 피드백이 Discord로 성공적으로 전송되었습니다.");
+                System.out.println("응답 상태: " + response.getStatusCode() + " (이미지 포함)");
+            } else {
+                // 이미지가 없는 경우 String으로 응답 처리 (JSON)
+                ResponseEntity<String> response = restTemplate.postForEntity(webhookUrl, request, String.class);
+                
+                if (!response.getStatusCode().is2xxSuccessful()) {
+                    String errorMessage = "Discord 웹훅 전송 실패: " + response.getStatusCode();
+                    if (response.getBody() != null) {
+                        errorMessage += " - " + response.getBody();
+                    }
+                    System.err.println(errorMessage);
+                    throw new RuntimeException(errorMessage);
+                }
+                
+                System.out.println("✓ 피드백이 Discord로 성공적으로 전송되었습니다.");
+                System.out.println("응답 상태: " + response.getStatusCode());
+                System.out.println("응답 본문: " + (response.getBody() != null ? response.getBody() : "없음"));
             }
-            
-            System.out.println("✓ 피드백이 Discord로 성공적으로 전송되었습니다.");
-            System.out.println("응답 상태: " + response.getStatusCode());
-            System.out.println("응답 본문: " + (response.getBody() != null ? response.getBody() : "없음"));
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             String errorMessage = "Discord 웹훅 URL이 유효하지 않거나 만료되었습니다. ";
             if (e.getStatusCode().value() == 404) {
