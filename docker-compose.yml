@@ -22,6 +22,32 @@ services:
     networks:
       - ceseats-network
 
+  redis:
+    image: redis:7-alpine
+    container_name: ces-eats-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ${REDIS_DATA_DIR:-/mnt/blockstorage/redis}:/data
+    command: >
+      sh -c "
+      if [ -n \"$$REDIS_PASSWORD\" ]; then
+        redis-server --appendonly yes --requirepass $$REDIS_PASSWORD
+      else
+        redis-server --appendonly yes
+      fi
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ceseats-network
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+
   ceseats-blue:
     image: ${DOCKER_USERNAME:-your-username}/ces-eats-backend:latest
     container_name: ceseats-blue
@@ -34,8 +60,13 @@ services:
       - DATABASE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ceseats}
       - DATABASE_USERNAME=${POSTGRES_USER:-ceseats}
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-ceseats}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -59,8 +90,13 @@ services:
       - DATABASE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ceseats}
       - DATABASE_USERNAME=${POSTGRES_USER:-ceseats}
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-ceseats}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

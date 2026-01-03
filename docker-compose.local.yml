@@ -16,7 +16,31 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - ceseats-local-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ces-eats-redis-local
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_local_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ceseats-local-network
 
 volumes:
   postgres_local_data:
+  redis_local_data:
+
+networks:
+  ceseats-local-network:
+    driver: bridge
 

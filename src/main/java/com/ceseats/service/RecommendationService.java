@@ -27,9 +27,8 @@ public class RecommendationService {
         // 도보 속도 5km/h 기준: timeOption 분 = (timeOption / 60) * 5km = (timeOption / 60) * 5000m
         // 더 정확하게는: timeOption 분 동안 걸을 수 있는 거리 = (timeOption / 60) * 5000
         int timeOptionMinutes = Integer.parseInt(request.getTimeOption());
-        int radiusMeters = (int) Math.round((timeOptionMinutes / 60.0) * 5000);
-        // 최소 100m, 최대 5000m
-        radiusMeters = Math.max(100, Math.min(5000, radiusMeters));
+        // 거리 필터링을 제거하기 위해 매우 큰 반경 사용 (Google Places API 최대값: 50000m)
+        int radiusMeters = 50000; // 50km - 모든 장소를 가져오기 위해 최대값 사용
 
         // PlaceSearchRequest 생성
         PlaceSearchRequest placeRequest = new PlaceSearchRequest();
@@ -46,13 +45,14 @@ public class RecommendationService {
         );
 
         // PlaceResponse를 StoreResponse로 변환
-        // 원 안의 모든 장소를 가져와서 유형에 할당 (타입 필터링은 프론트엔드에서 수행)
+        // 모든 장소를 가져와서 유형에 할당 (타입 필터링은 프론트엔드에서 수행)
         List<StoreResponse> storeResponses = placeResponse.getPlaces().stream()
-                .filter(place -> {
-                    // timeOption 필터링만 수행 (도보 시간이 timeOption 이하인 것만)
-                    // 타입 필터링은 프론트엔드에서 수행하여 모든 장소가 유형별로 표시되도록 함
-                    return place.getWalkTimeMinutes() != null && place.getWalkTimeMinutes() <= timeOptionMinutes;
-                })
+                // 거리 필터링 주석 처리 - 원 외부의 핀도 표시하기 위해
+                // .filter(place -> {
+                //     // timeOption 필터링만 수행 (도보 시간이 timeOption 이하인 것만)
+                //     // 타입 필터링은 프론트엔드에서 수행하여 모든 장소가 유형별로 표시되도록 함
+                //     return place.getWalkTimeMinutes() != null && place.getWalkTimeMinutes() <= timeOptionMinutes;
+                // })
                 .map(this::convertToStoreResponse)
                 .collect(Collectors.toList());
 

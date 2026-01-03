@@ -117,6 +117,47 @@ else
     echo "✅ PostgreSQL 컨테이너 실행 중"
 fi
 
+# 3-2. Redis 컨테이너 확인 및 시작
+echo "3-2. Redis 컨테이너 확인 중..."
+REDIS_DATA_DIR="${REDIS_DATA_DIR:-/mnt/blockstorage/redis}"
+
+# 블록 스토리지 디렉토리 생성 및 권한 설정
+if [ ! -d "${REDIS_DATA_DIR}" ]; then
+    echo "Redis 블록 스토리지 디렉토리 생성 중: ${REDIS_DATA_DIR}"
+    sudo mkdir -p ${REDIS_DATA_DIR}
+    sudo chmod 755 ${REDIS_DATA_DIR}
+fi
+
+if ! docker ps | grep -q ces-eats-redis; then
+    if docker ps -a | grep -q ces-eats-redis; then
+        echo "기존 Redis 컨테이너 시작 중..."
+        docker start ces-eats-redis
+    else
+        echo "Redis 컨테이너 생성 중..."
+        echo "데이터 저장 경로: ${REDIS_DATA_DIR}"
+        
+        # Redis 명령어 구성 (비밀번호가 있으면 requirepass 추가)
+        REDIS_CMD="redis-server --appendonly yes"
+        if [ -n "${REDIS_PASSWORD}" ]; then
+            REDIS_CMD="${REDIS_CMD} --requirepass ${REDIS_PASSWORD}"
+        fi
+        
+        docker run -d \
+            --name ces-eats-redis \
+            -p 6379:6379 \
+            --restart unless-stopped \
+            --network ceseats-network \
+            -v ${REDIS_DATA_DIR}:/data \
+            -e REDIS_PASSWORD="${REDIS_PASSWORD:-}" \
+            redis:7-alpine \
+            sh -c "${REDIS_CMD}"
+        echo "Redis 초기화 대기 중..."
+        sleep 5
+    fi
+else
+    echo "✅ Redis 컨테이너 실행 중"
+fi
+
 # 4. 새 컨테이너 실행
 echo "4. 새 ${DEPLOY_TO} 컨테이너 시작 중..."
 docker run -d \
@@ -124,9 +165,13 @@ docker run -d \
     -p ${DEPLOY_PORT}:8080 \
     -e GOOGLE_PLACES_API_KEY="${GOOGLE_PLACES_API_KEY}" \
     -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
+    -e SPRING_PROFILES_ACTIVE=prod \
     -e DATABASE_URL="jdbc:postgresql://ceseats-postgres:5432/ceseats" \
     -e DATABASE_USERNAME="${DATABASE_USERNAME:-ceseats}" \
     -e DATABASE_PASSWORD="${DATABASE_PASSWORD:-ceseats}" \
+    -e REDIS_HOST=ces-eats-redis \
+    -e REDIS_PORT=6379 \
+    -e REDIS_PASSWORD="${REDIS_PASSWORD:-}" \
     --restart unless-stopped \
     --network ceseats-network \
     ${IMAGE_NAME}
