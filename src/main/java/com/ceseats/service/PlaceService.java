@@ -13,6 +13,8 @@ import com.ceseats.service.google.GooglePlacesClient;
 import com.ceseats.service.google.PlaceDetails;
 import com.ceseats.service.LLMService;
 import com.ceseats.service.ReviewService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -36,6 +38,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class PlaceService {
+
+    private static final Logger logger = LoggerFactory.getLogger(PlaceService.class);
 
     @Autowired
     private GooglePlacesClient googlePlacesClient;
@@ -106,8 +110,13 @@ public class PlaceService {
 
                     // Redis에서 types 가져오기
                     List<String> types = reviewService.getTypes(store.getPlaceId());
+                    logger.info("[PlaceService] getTypes from Redis - placeId: {}, storeName: {}, types: {}, typesSize: {}", 
+                               store.getPlaceId(), store.getName(), types, types != null ? types.size() : 0);
                     if (types != null && !types.isEmpty()) {
                         details.setTypes(types);
+                        logger.info("[PlaceService] types set to PlaceDetails - placeId: {}, types: {}", store.getPlaceId(), types);
+                    } else {
+                        logger.warn("[PlaceService] WARNING: types is null or empty for placeId: {}", store.getPlaceId());
                     }
 
                     // 도보 시간 계산
@@ -225,6 +234,10 @@ public class PlaceService {
     private PlaceResponse convertToPlaceResponse(PlaceDetails details, int walkTimeMinutes, Long viewCount, Long viewCountIncrease) {
         // 타입 결정 (Google Places API types 기반)
         String type = determinePlaceType(details.getTypes());
+        
+        logger.info("[PlaceService] convertToPlaceResponse - placeId: {}, name: {}, types: {}, typesSize: {}, determinedType: {}", 
+                   details.getPlaceId(), details.getName(), details.getTypes(), 
+                   details.getTypes() != null ? details.getTypes().size() : 0, type);
         
         PlaceResponse.PlaceResponseBuilder builder = PlaceResponse.builder()
                 .id(details.getPlaceId())
@@ -536,8 +549,15 @@ public class PlaceService {
 
         // Redis에서 types 가져오기
         List<String> typesFromRedis = reviewService.getTypes(store.getPlaceId());
+        logger.info("[PlaceService] convertStoreToPlaceDetails - placeId: {}, storeName: {}, typesFromRedis: {}, typesSize: {}", 
+                   store.getPlaceId(), store.getName(), typesFromRedis, typesFromRedis != null ? typesFromRedis.size() : 0);
         if (typesFromRedis != null && !typesFromRedis.isEmpty()) {
             details.setTypes(typesFromRedis);
+            logger.info("[PlaceService] types set to PlaceDetails in convertStoreToPlaceDetails - placeId: {}, types: {}", 
+                       store.getPlaceId(), typesFromRedis);
+        } else {
+            logger.warn("[PlaceService] WARNING: typesFromRedis is null or empty in convertStoreToPlaceDetails - placeId: {}", 
+                       store.getPlaceId());
         }
         
         return details;

@@ -6,6 +6,8 @@ import com.ceseats.dto.StoreResponse;
 import com.ceseats.dto.request.PlaceSearchRequest;
 import com.ceseats.dto.response.PlaceResponse;
 import com.ceseats.dto.response.PlaceSearchResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -19,10 +21,15 @@ import java.util.stream.Collectors;
 @Service
 public class RecommendationService {
 
+    private static final Logger logger = LoggerFactory.getLogger(RecommendationService.class);
+
     @Autowired
     private PlaceService placeService;
 
     public RecommendationResponse getRecommendations(RecommendationRequest request) {
+        logger.info("[RecommendationService] getRecommendations - request type: {}, latitude: {}, longitude: {}, timeOption: {}", 
+                   request.getType(), request.getLatitude(), request.getLongitude(), request.getTimeOption());
+        
         // timeOption을 반경(미터)으로 변환
         // 도보 속도 5km/h 기준: timeOption 분 = (timeOption / 60) * 5km = (timeOption / 60) * 5000m
         // 더 정확하게는: timeOption 분 동안 걸을 수 있는 거리 = (timeOption / 60) * 5000
@@ -44,6 +51,9 @@ public class RecommendationService {
                 request.getLongitude()
         );
 
+        logger.info("[RecommendationService] searchPlaces returned {} places", 
+                   placeResponse.getPlaces() != null ? placeResponse.getPlaces().size() : 0);
+
         // PlaceResponse를 StoreResponse로 변환
         // 모든 장소를 가져와서 유형에 할당 (타입 필터링은 프론트엔드에서 수행)
         List<StoreResponse> storeResponses = placeResponse.getPlaces().stream()
@@ -55,6 +65,14 @@ public class RecommendationService {
                 // })
                 .map(this::convertToStoreResponse)
                 .collect(Collectors.toList());
+
+        logger.info("[RecommendationService] Converted to {} StoreResponse objects", storeResponses.size());
+        logger.info("[RecommendationService] Sample StoreResponse types (first 5):");
+        storeResponses.stream().limit(5).forEach(store -> {
+            logger.info("  - placeId: {}, name: {}, type: {}, types: {}, typesSize: {}", 
+                       store.getId(), store.getName(), store.getType(), store.getTypes(), 
+                       store.getTypes() != null ? store.getTypes().size() : 0);
+        });
 
         return new RecommendationResponse(storeResponses);
     }
@@ -99,6 +117,10 @@ public class RecommendationService {
                     .collect(java.util.stream.Collectors.toList());
         }
 
+        logger.info("[RecommendationService] convertToStoreResponse - placeId: {}, name: {}, types: {}, typesSize: {}, type: {}", 
+                   place.getId(), place.getName(), place.getTypes(), 
+                   place.getTypes() != null ? place.getTypes().size() : 0, type);
+        
         StoreResponse response = new StoreResponse(
                 place.getId(),
                 place.getName(),
@@ -116,6 +138,10 @@ public class RecommendationService {
                 place.getViewCount() != null ? place.getViewCount().intValue() : 0, // 조회수
                 place.getViewCountIncrease() != null ? place.getViewCountIncrease() : 0L // 최근 10분 증가량
         );
+        
+        logger.info("[RecommendationService] StoreResponse created - placeId: {}, types in response: {}", 
+                   response.getId(), response.getTypes());
+        
         return response;
     }
 

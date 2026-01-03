@@ -2,6 +2,8 @@ package com.ceseats.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.RedisCallback;
@@ -16,6 +18,8 @@ import java.util.Map;
  */
 @Service
 public class ReviewService {
+
+    private static final Logger logger = LoggerFactory.getLogger(ReviewService.class);
 
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
@@ -161,24 +165,30 @@ public class ReviewService {
     public List<String> getTypes(String placeId) {
         try {
             String key = "types:" + placeId;
+            logger.info("[Redis] getTypes - placeId: {}, key: {}", placeId, key);
             Object types = redisTemplate.opsForValue().get(key);
             if (types == null) {
+                logger.warn("[Redis] getTypes - types is null for placeId: {}", placeId);
                 return null;
             }
 
             // Redis에서 가져온 데이터가 문자열인 경우 파싱
             if (types instanceof String) {
-                return objectMapper.readValue((String) types, new TypeReference<List<String>>() {});
+                List<String> parsedTypes = objectMapper.readValue((String) types, new TypeReference<List<String>>() {});
+                logger.info("[Redis] getTypes - parsed from String, placeId: {}, types: {}", placeId, parsedTypes);
+                return parsedTypes;
             } else if (types instanceof List) {
                 // 이미 List인 경우 그대로 반환
                 @SuppressWarnings("unchecked")
                 List<String> typesList = (List<String>) types;
+                logger.info("[Redis] getTypes - found List, placeId: {}, types: {}", placeId, typesList);
                 return typesList;
             }
 
+            logger.warn("[Redis] getTypes - unknown type: {}", types != null ? types.getClass().getName() : "null");
             return null;
         } catch (Exception e) {
-            // 로깅은 필요시 추가
+            logger.error("[Redis] getTypes - ERROR for placeId: {}", placeId, e);
             return null;
         }
     }
