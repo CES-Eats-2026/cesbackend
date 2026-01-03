@@ -136,7 +136,50 @@ if ! docker ps | grep -q ces-eats-redis; then
         echo "Redis 컨테이너 생성 중..."
         echo "데이터 저장 경로: ${REDIS_DATA_DIR}"
         
+        # Redis 데이터 복원 처리
+        # dump.rdb가 있을 때만 복원하고, 그 외에는 기존 데이터(AOF)를 그대로 사용
+        if [ -f "${REDIS_DATA_DIR}/dump.rdb" ]; then
+            echo "⚠️  dump.rdb 파일 발견 - 데이터 복원을 위해 기존 AOF 파일 처리 중..."
+            if [ -f "${REDIS_DATA_DIR}/appendonly.aof" ]; then
+                # 기존 AOF 파일 크기 확인 (빈 파일이면 제거, 데이터가 있으면 백업)
+                AOF_SIZE=$(sudo stat -f%z "${REDIS_DATA_DIR}/appendonly.aof" 2>/dev/null || sudo stat -c%s "${REDIS_DATA_DIR}/appendonly.aof" 2>/dev/null || echo "0")
+                if [ "${AOF_SIZE}" = "0" ] || [ "${AOF_SIZE}" -lt 100 ]; then
+                    # 빈 AOF 파일이면 제거 (dump.rdb가 로드되도록)
+                    echo "빈 AOF 파일 제거 중..."
+                    sudo rm -f "${REDIS_DATA_DIR}/appendonly.aof" 2>/dev/null || true
+                    echo "✅ 빈 AOF 파일 제거 완료"
+                else
+                    # 데이터가 있는 AOF 파일이면 백업
+                    BACKUP_FILE="${REDIS_DATA_DIR}/appendonly.aof.backup.$(date +%Y%m%d_%H%M%S)"
+                    sudo mv "${REDIS_DATA_DIR}/appendonly.aof" "${BACKUP_FILE}" 2>/dev/null || {
+                        echo "⚠️  AOF 파일 백업 실패 (권한 문제일 수 있음)"
+                    }
+                    echo "✅ AOF 파일 백업 완료: ${BACKUP_FILE}"
+                fi
+            fi
+            # dump.rdb 파일 권한 확인 및 수정 (Redis는 UID 999로 실행)
+            sudo chown 999:999 "${REDIS_DATA_DIR}/dump.rdb" 2>/dev/null || true
+            sudo chmod 644 "${REDIS_DATA_DIR}/dump.rdb" 2>/dev/null || true
+            echo "✅ dump.rdb 파일 준비 완료 - Redis 시작 시 자동 로드됩니다"
+        else
+            # dump.rdb가 없는 경우 - 기존 데이터를 그대로 사용
+            echo "ℹ️  dump.rdb 파일이 없습니다 - 기존 데이터를 그대로 사용합니다"
+            if [ -f "${REDIS_DATA_DIR}/appendonly.aof" ]; then
+                AOF_SIZE=$(sudo stat -f%z "${REDIS_DATA_DIR}/appendonly.aof" 2>/dev/null || sudo stat -c%s "${REDIS_DATA_DIR}/appendonly.aof" 2>/dev/null || echo "0")
+                if [ "${AOF_SIZE}" = "0" ] || [ "${AOF_SIZE}" -lt 100 ]; then
+                    echo "⚠️  빈 AOF 파일 발견 - 제거하고 빈 Redis로 시작합니다"
+                    sudo rm -f "${REDIS_DATA_DIR}/appendonly.aof" 2>/dev/null || true
+                else
+                    echo "✅ 기존 AOF 파일 발견 (${AOF_SIZE} bytes) - Redis 시작 시 자동 로드됩니다"
+                fi
+            else
+                echo "ℹ️  기존 데이터 파일이 없습니다 - 빈 Redis로 시작합니다"
+            fi
+        fi
+        
         # Redis 명령어 구성 (비밀번호가 있으면 requirepass 추가)
+        # dump.rdb를 로드하기 위해 처음에는 AOF를 비활성화하고 시작
+        # (AOF가 있으면 AOF가 우선순위가 높아서 dump.rdb가 무시될 수 있음)
         REDIS_CMD="redis-server --appendonly yes"
         if [ -n "${REDIS_PASSWORD}" ]; then
             REDIS_CMD="${REDIS_CMD} --requirepass ${REDIS_PASSWORD}"
@@ -153,6 +196,25 @@ if ! docker ps | grep -q ces-eats-redis; then
             sh -c "${REDIS_CMD}"
         echo "Redis 초기화 대기 중..."
         sleep 5
+        
+        # Redis가 시작된 후 데이터 로드 확인
+        if [ -f "${REDIS_DATA_DIR}/dump.rdb" ]; then
+            echo "Redis 데이터 로드 확인 중..."
+            sleep 2
+            # Redis에 연결하여 DBSIZE 확인 (비밀번호가 있으면 AUTH 필요)
+            if [ -n "${REDIS_PASSWORD}" ]; then
+                DB_SIZE=$(docker exec ces-eats-redis redis-cli -a "${REDIS_PASSWORD}" DBSIZE 2>/dev/null || echo "0")
+            else
+                DB_SIZE=$(docker exec ces-eats-redis redis-cli DBSIZE 2>/dev/null || echo "0")
+            fi
+            echo "Redis DBSIZE: ${DB_SIZE}"
+            if [ "${DB_SIZE}" != "0" ] && [ "${DB_SIZE}" != "" ]; then
+                echo "✅ Redis 데이터 로드 성공 (${DB_SIZE} keys)"
+            else
+                echo "⚠️  Redis 데이터가 로드되지 않았습니다 (DBSIZE = 0)"
+                echo "   dump.rdb 파일을 확인하거나 수동으로 복원이 필요할 수 있습니다"
+            fi
+        fi
     fi
 else
     echo "✅ Redis 컨테이너 실행 중"
