@@ -3,6 +3,8 @@ package com.ceseats.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.CollectionType;
 import com.fasterxml.jackson.databind.type.MapType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -13,8 +15,21 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @Configuration
 public class RedisConfig {
 
+    private static final Logger logger = LoggerFactory.getLogger(RedisConfig.class);
+
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
+        logger.info("[RedisConfig] Creating RedisTemplate...");
+        logger.info("[RedisConfig] RedisConnectionFactory: {}", connectionFactory.getClass().getName());
+        
+        try {
+            // Redis 연결 테스트
+            connectionFactory.getConnection().ping();
+            logger.info("[RedisConfig] ✅ Redis connection test: SUCCESS");
+        } catch (Exception e) {
+            logger.error("[RedisConfig] ❌ Redis connection test: FAILED - {}", e.getMessage(), e);
+        }
+        
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
 
@@ -33,6 +48,7 @@ public class RedisConfig {
         template.setDefaultSerializer(serializer);
         
         template.afterPropertiesSet();
+        logger.info("[RedisConfig] RedisTemplate created successfully");
         return template;
     }
 }

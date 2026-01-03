@@ -164,11 +164,27 @@ public class ReviewService {
      */
     public List<String> getTypes(String placeId) {
         try {
+            // Redis 연결 확인
+            if (redisTemplate == null) {
+                logger.error("[Redis] getTypes - redisTemplate is NULL!");
+                return null;
+            }
+            
             String key = "types:" + placeId;
             logger.info("[Redis] getTypes - placeId: {}, key: {}", placeId, key);
+            
+            // Redis 연결 테스트
+            try {
+                redisTemplate.getConnectionFactory().getConnection().ping();
+                logger.info("[Redis] getTypes - Redis connection OK");
+            } catch (Exception e) {
+                logger.error("[Redis] getTypes - Redis connection FAILED: {}", e.getMessage(), e);
+                return null;
+            }
+            
             Object types = redisTemplate.opsForValue().get(key);
             if (types == null) {
-                logger.warn("[Redis] getTypes - types is null for placeId: {}", placeId);
+                logger.warn("[Redis] getTypes - types is null for placeId: {} (key not found in Redis)", placeId);
                 return null;
             }
 

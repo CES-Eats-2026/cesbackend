@@ -70,6 +70,9 @@ public class PlaceService {
      * Google API 호출 최소화: DB에서 먼저 조회, 없을 때만 API 호출
      */
     public PlaceSearchResponse searchPlaces(PlaceSearchRequest request, double userLatitude, double userLongitude) {
+        logger.info("[PlaceService] searchPlaces - latitude: {}, longitude: {}, radius: {}", 
+                   request.getLatitude(), request.getLongitude(), request.getRadius());
+        
         // 반경을 km로 변환 (미터 -> km)
         double radiusKm = request.getRadius() / 1000.0;
         
@@ -79,6 +82,8 @@ public class PlaceService {
                 request.getLongitude(),
                 radiusKm
         );
+        
+        logger.info("[PlaceService] searchPlaces - found {} stores in radius", storesInRadius.size());
 
         // 2. DB에 있는 장소들을 PlaceResponse로 변환
         List<CompletableFuture<PlaceResponse>> futures = new ArrayList<>();
@@ -88,36 +93,11 @@ public class PlaceService {
             foundPlaceIds.add(store.getPlaceId());
             CompletableFuture<PlaceResponse> future = CompletableFuture.supplyAsync(() -> {
                 try {
+                    logger.info("[PlaceService] Processing store - placeId: {}, name: {}", store.getPlaceId(), store.getName());
                     PlaceDetails details = convertStoreToPlaceDetails(store);
-                    
-                    // Redis에서 reviews 가져오기
-                    List<Map<String, Object>> reviews = reviewService.getReviews(store.getPlaceId());
-                    if (reviews != null && !reviews.isEmpty()) {
-                        // Redis에서 가져온 reviews를 PlaceDetails 형식으로 변환
-                        List<PlaceDetails.Review> reviewList = reviews.stream()
-                                .map(reviewMap -> {
-                                    PlaceDetails.Review review = new PlaceDetails.Review();
-                                    review.setAuthorName((String) reviewMap.get("authorName"));
-                                    review.setRating((Integer) reviewMap.get("rating"));
-                                    review.setText((String) reviewMap.get("text"));
-                                    review.setTime(((Number) reviewMap.get("time")).longValue());
-                                    review.setRelativeTimeDescription((String) reviewMap.get("relativeTimeDescription"));
-                                    return review;
-                                })
-                                .collect(Collectors.toList());
-                        details.setReviews(reviewList);
-                    }
-
-                    // Redis에서 types 가져오기
-                    List<String> types = reviewService.getTypes(store.getPlaceId());
-                    logger.info("[PlaceService] getTypes from Redis - placeId: {}, storeName: {}, types: {}, typesSize: {}", 
-                               store.getPlaceId(), store.getName(), types, types != null ? types.size() : 0);
-                    if (types != null && !types.isEmpty()) {
-                        details.setTypes(types);
-                        logger.info("[PlaceService] types set to PlaceDetails - placeId: {}, types: {}", store.getPlaceId(), types);
-                    } else {
-                        logger.warn("[PlaceService] WARNING: types is null or empty for placeId: {}", store.getPlaceId());
-                    }
+                    // convertStoreToPlaceDetails에서 이미 reviews와 types를 Redis에서 가져와서 설정함
+                    logger.info("[PlaceService] convertStoreToPlaceDetails completed - placeId: {}, types: {}", 
+                               store.getPlaceId(), details.getTypes());
 
                     // 도보 시간 계산
                     int walkTimeMinutes = calculateWalkTime(
@@ -516,6 +496,8 @@ public class PlaceService {
      * Store 엔티티를 PlaceDetails로 변환 (DB에서 가져온 데이터를 API 응답 형식으로 변환)
      */
     private PlaceDetails convertStoreToPlaceDetails(Store store) {
+        logger.info("[PlaceService] convertStoreToPlaceDetails START - placeId: {}, name: {}", store.getPlaceId(), store.getName());
+        
         PlaceDetails details = new PlaceDetails();
         details.setPlaceId(store.getPlaceId());
         details.setName(store.getName());
@@ -548,17 +530,23 @@ public class PlaceService {
         }
 
         // Redis에서 types 가져오기
+        logger.info("[PlaceService] convertStoreToPlaceDetails - calling reviewService.getTypes for placeId: {}", store.getPlaceId());
         List<String> typesFromRedis = reviewService.getTypes(store.getPlaceId());
         logger.info("[PlaceService] convertStoreToPlaceDetails - placeId: {}, storeName: {}, typesFromRedis: {}, typesSize: {}", 
                    store.getPlaceId(), store.getName(), typesFromRedis, typesFromRedis != null ? typesFromRedis.size() : 0);
         if (typesFromRedis != null && !typesFromRedis.isEmpty()) {
             details.setTypes(typesFromRedis);
-            logger.info("[PlaceService] types set to PlaceDetails in convertStoreToPlaceDetails - placeId: {}, types: {}", 
+            logger.info("[PlaceService] convertStoreToPlaceDetails - types set to PlaceDetails - placeId: {}, types: {}", 
                        store.getPlaceId(), typesFromRedis);
         } else {
-            logger.warn("[PlaceService] WARNING: typesFromRedis is null or empty in convertStoreToPlaceDetails - placeId: {}", 
+            logger.warn("[PlaceService] convertStoreToPlaceDetails - WARNING: typesFromRedis is null or empty - placeId: {}", 
                        store.getPlaceId());
+            // types가 null이면 빈 리스트로 설정하여 NPE 방지
+            details.setTypes(new ArrayList<>());
         }
+        
+        logger.info("[PlaceService] convertStoreToPlaceDetails END - placeId: {}, final types: {}", 
+                   store.getPlaceId(), details.getTypes());
         
         return details;
     }
