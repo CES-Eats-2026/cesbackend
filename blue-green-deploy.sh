@@ -180,7 +180,7 @@ if ! docker ps | grep -q ces-eats-redis; then
         # Redis 명령어 구성 (비밀번호가 있으면 requirepass 추가)
         # dump.rdb를 로드하기 위해 처음에는 AOF를 비활성화하고 시작
         # (AOF가 있으면 AOF가 우선순위가 높아서 dump.rdb가 무시될 수 있음)
-        REDIS_CMD="redis-server --appendonly yes"
+        REDIS_CMD="redis-server --appendonly no"
         if [ -n "${REDIS_PASSWORD}" ]; then
             REDIS_CMD="${REDIS_CMD} --requirepass ${REDIS_PASSWORD}"
         fi
