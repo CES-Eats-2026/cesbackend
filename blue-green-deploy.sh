@@ -132,6 +132,14 @@ if ! docker ps | grep -q ces-eats-redis; then
     if docker ps -a | grep -q ces-eats-redis; then
         echo "기존 Redis 컨테이너 시작 중..."
         docker start ces-eats-redis
+        
+        # 기존 Redis 컨테이너가 ceseats-network에 연결되어 있는지 확인
+        if ! docker inspect ces-eats-redis | grep -q "ceseats-network"; then
+            echo "⚠️  Redis 컨테이너가 ceseats-network에 연결되지 않음. 네트워크 연결 중..."
+            docker network connect ceseats-network ces-eats-redis 2>/dev/null || {
+                echo "⚠️  네트워크 연결 실패 (이미 다른 네트워크에 있을 수 있음)"
+            }
+        fi
     else
         echo "Redis 컨테이너 생성 중..."
         echo "데이터 저장 경로: ${REDIS_DATA_DIR}"
