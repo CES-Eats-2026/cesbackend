@@ -35,6 +35,7 @@ public class PlaceResponse {
     private Double longitude;
     private String address;
     private String type; // "restaurant", "cafe", "fastfood", "bar"
+    private List<String> types; // Google Places API types 리스트 (Redis에서 가져옴)
     private String website; // 웹사이트 URL (메뉴 정보가 있을 수 있음)
 
     @Data

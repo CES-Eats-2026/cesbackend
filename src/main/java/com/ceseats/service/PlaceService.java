@@ -243,6 +243,7 @@ public class PlaceService {
                 .longitude(details.getLongitude())
                 .address(details.getAddress())
                 .type(type)
+                .types(details.getTypes()) // Google Places API types 리스트
                 .website(details.getWebsite());
 
         // 리뷰 변환

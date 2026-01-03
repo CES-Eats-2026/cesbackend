@@ -21,6 +21,7 @@ public class StoreResponse {
     private Double longitude;
     private String address;
     private List<String> photos; // 사진 URL 리스트
+    private List<String> types; // Google Places API types 리스트 (필터링용)
     private List<ReviewDto> reviews; // 리뷰 리스트
     private Integer viewCount; // 조회수
     private Long viewCountIncrease; // 최근 10분 동안의 조회수 증가량
