@@ -120,7 +120,7 @@ public class RecommendationService {
         logger.info("[RecommendationService] convertToStoreResponse - placeId: {}, name: {}, types: {}, typesSize: {}, type: {}", 
                    place.getId(), place.getName(), place.getTypes(), 
                    place.getTypes() != null ? place.getTypes().size() : 0, type);
-        
+
         StoreResponse response = new StoreResponse(
                 place.getId(),
                 place.getName(),

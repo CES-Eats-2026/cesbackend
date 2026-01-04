@@ -25,7 +25,7 @@ import java.util.Map;
 @Service
 public class FeedbackService {
 
-    @Value("${discord.webhook.url:}")
+    @Value("${discord.webhook.feedback.url:${discord.webhook.url:}}")
     private String webhookUrl;
 
     private final RestTemplate restTemplate;
