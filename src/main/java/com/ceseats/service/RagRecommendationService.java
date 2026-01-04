@@ -108,18 +108,17 @@ public class RagRecommendationService {
     }
 
     /**
-     * Fallback: 레스토랑/카페 중 랜덤으로 반환
+     * 공개 메서드: 랜덤 장소 반환 (에러 발생 시 사용)
      */
-    private RagRecommendationResult getFallbackRecommendations(
-        Double latitude,
-        Double longitude,
-        Integer maxDistanceKm
-    ) {
-        // 반경 내의 모든 장소 가져오기
+    public RagRecommendationResult getRandomStores(int count, Double latitude, Double longitude) {
+        logger.info("[RagRecommendationService] getRandomStores - count: {}, latitude: {}, longitude: {}", 
+                count, latitude, longitude);
+        
+        // 반경 내의 모든 장소 가져오기 (50km 반경)
         List<Store> allStores = storeRepository.findStoresWithinRadius(
             latitude,
             longitude,
-            maxDistanceKm != null ? maxDistanceKm.doubleValue() : 50.0
+            50.0
         );
 
         // 레스토랑/카페 타입 필터링
@@ -140,10 +139,10 @@ public class RagRecommendationService {
             })
             .collect(Collectors.toList());
 
-        // 랜덤으로 최대 3개 선택
+        // 랜덤으로 선택
         Collections.shuffle(restaurantCafeStores);
         List<Store> selected = restaurantCafeStores.stream()
-            .limit(3)
+            .limit(count)
             .collect(Collectors.toList());
 
         // PlaceContext로 변환
@@ -175,12 +174,19 @@ public class RagRecommendationService {
             .map(this::convertToStoreResponse)
             .collect(Collectors.toList());
 
-        String fallbackReason = "딱 맞아떨어지는 음식점이 없습니다. 대신, 아래는 어떠신가요?";
-        // 추천 이유를 100자로 제한 (토큰 사용량 절감)
-        if (fallbackReason.length() > 100) {
-            fallbackReason = fallbackReason.substring(0, 100);
-        }
-        return new RagRecommendationResult(recommendations, fallbackReason);
+        String reason = String.format("LLM 토큰이 다 사용이 되어, 랜덤 %d개를 반환합니다", recommendations.size());
+        return new RagRecommendationResult(recommendations, reason, true);
+    }
+
+    /**
+     * Fallback: 레스토랑/카페 중 랜덤으로 반환 (내부 사용)
+     */
+    private RagRecommendationResult getFallbackRecommendations(
+        Double latitude,
+        Double longitude,
+        Integer maxDistanceKm
+    ) {
+        return getRandomStores(3, latitude, longitude);
     }
 
     /**
@@ -579,10 +585,16 @@ public class RagRecommendationService {
     public static class RagRecommendationResult {
         private List<StoreResponse> stores;
         private String reason;
+        private boolean isRandom;
 
         public RagRecommendationResult(List<StoreResponse> stores, String reason) {
+            this(stores, reason, false);
+        }
+
+        public RagRecommendationResult(List<StoreResponse> stores, String reason, boolean isRandom) {
             this.stores = stores;
             this.reason = reason;
+            this.isRandom = isRandom;
         }
 
         public List<StoreResponse> getStores() {
@@ -591,6 +603,10 @@ public class RagRecommendationService {
 
         public String getReason() {
             return reason;
+        }
+
+        public boolean isRandom() {
+            return isRandom;
         }
     }
 }

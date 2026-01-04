@@ -35,16 +35,31 @@ public class RagRecommendationController {
             Map<String, Object> response = new HashMap<>();
             response.put("stores", result.getStores());
             response.put("reason", result.getReason());
+            response.put("isRandom", result.isRandom()); // 랜덤 반환 여부
             
-            logger.info("[RagRecommendationController] RAG recommendation successful - stores: {}, reason: {}",
-                    result.getStores() != null ? result.getStores().size() : 0, result.getReason());
+            logger.info("[RagRecommendationController] RAG recommendation successful - stores: {}, reason: {}, isRandom: {}",
+                    result.getStores() != null ? result.getStores().size() : 0, result.getReason(), result.isRandom());
             
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            logger.error("[RagRecommendationController] Error processing RAG recommendation request", e);
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("error", "Failed to get RAG recommendations: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            logger.error("[RagRecommendationController] Error processing RAG recommendation request, returning random stores", e);
+            // 에러 발생 시 랜덤 5개 반환
+            try {
+                RagRecommendationService.RagRecommendationResult randomResult = 
+                    ragRecommendationService.getRandomStores(5, request.getLatitude(), request.getLongitude());
+                
+                Map<String, Object> response = new HashMap<>();
+                response.put("stores", randomResult.getStores());
+                response.put("reason", randomResult.getReason());
+                response.put("isRandom", true);
+                
+                return ResponseEntity.ok(response);
+            } catch (Exception fallbackException) {
+                logger.error("[RagRecommendationController] Failed to get random stores as fallback", fallbackException);
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("error", "Failed to get recommendations: " + e.getMessage());
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            }
         }
     }
 }
