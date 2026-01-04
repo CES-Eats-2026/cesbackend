@@ -87,17 +87,8 @@ public class RagRecommendationService {
             logger.info("[RagRecommendationService] LLM ranking completed - stores: {}, reason: {}",
                     result.getStores() != null ? result.getStores().size() : 0, result.getReason());
             
-            // Fallback: 결과가 없으면 레스토랑/카페 중 랜덤 반환
-            if (result.getStores().isEmpty()) {
-                logger.info("[RagRecommendationService] No RAG results found, falling back to random restaurant/cafe");
-                result = getFallbackRecommendations(
-                    request.getLatitude(),
-                    request.getLongitude(),
-                    request.getMaxDistanceKm()
-                );
-                logger.info("[RagRecommendationService] Fallback completed - stores: {}, reason: {}",
-                        result.getStores() != null ? result.getStores().size() : 0, result.getReason());
-            }
+            // 결과가 없어도 그냥 반환 (랜덤 fallback 제거)
+            // 랜덤 결과는 예외 발생 시에만 반환됨
             
             logger.info("[RagRecommendationService] getRecommendations SUCCESS");
             return result;
