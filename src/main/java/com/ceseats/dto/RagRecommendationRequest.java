@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 public class RagRecommendationRequest {
     private Double latitude;
     private Double longitude;
-    private Integer maxDistanceKm; // 최대 거리 (km)
-    private String userPreference; // 자유 텍스트 선호도
+    private Integer maxDistanceKm; //최대 거리 (km)
+    private String userPreference; //자유 텍스트 선호도
 }
 

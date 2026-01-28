@@ -1,4 +1,4 @@
-package com.ceseats.model;
+package com.ceseats.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
 public class Store {
     @Id
     @Column(name = "place_id", nullable = false, unique = true)
-    private String placeId; // Google Places place_id (PRIMARY KEY)
+    private String placeId;
 
     @Column(nullable = false)
     private String name;
@@ -26,30 +26,17 @@ public class Store {
     @Column(nullable = false)
     private Double longitude;
 
-    @Column(name = "price_level")
-    private String priceLevel; // 최솟값 ~ 최댓값 형식
-
-    @Column(name = "reason", length = 500, nullable = false)
-    private String reason; // 한줄평
-
     @Column(name = "address")
-    private String address; // 주소
+    private String address; //주소
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
 
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
     }
 
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 }
 

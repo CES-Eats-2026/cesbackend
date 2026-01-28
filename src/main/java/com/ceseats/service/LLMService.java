@@ -120,40 +120,28 @@ public class LLMService {
      * Generic LLM call method for RAG recommendations with user preference tracking
      */
     public String callLLM(String prompt, String userPreference) {
-        logger.info("[LLMService] callLLM START - provider: {}, userPreference: {}, prompt length: {}", 
-                llmProvider, userPreference, prompt != null ? prompt.length() : 0);
         
         String currentApiKey = "gemini".equalsIgnoreCase(llmProvider) ? geminiApiKey : openaiApiKey;
         if (currentApiKey == null || currentApiKey.isEmpty()) {
-            logger.error("[LLMService] API key is not set for provider: {}", llmProvider);
             throw new RuntimeException("LLM API key is not set for provider " + llmProvider);
         }
-        
-        logger.info("[LLMService] API key is set (length: {})", currentApiKey.length());
-        
+
         try {
             String result = callLLMInternal(prompt, userPreference, 500, 0.3);
-            logger.info("[LLMService] callLLM SUCCESS - response length: {}", result != null ? result.length() : 0);
             return result;
         } catch (Exception e) {
-            logger.error("[LLMService] callLLM ERROR", e);
             throw e;
         }
     }
 
     /**
-     * Internal LLM call method that supports both Gemini and OpenAI
+     * 내부 LLM 콜
      */
     private String callLLMInternal(String prompt, String userPreference, int maxTokens, double temperature) {
         try {
-            if ("gemini".equalsIgnoreCase(llmProvider)) {
-                return callGeminiAPI(prompt, userPreference, maxTokens, temperature);
-            } else {
-                return callOpenAIAPI(prompt, userPreference, maxTokens, temperature);
-            }
+            return callOpenAIAPI(prompt, userPreference, maxTokens, temperature);
         } catch (Exception e) {
-            logger.error("Error calling LLM API: {}", e.getMessage(), e);
-            throw new RuntimeException("LLM call failed", e);
+            throw new RuntimeException("LLM 콜 실패", e);
         }
     }
 

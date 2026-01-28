@@ -2933,3 +2933,6 @@ Caused by: org.postgresql.util.PSQLException: FATAL: database "ceseats" does not
 2026-01-28 15:14:03.665 [RecommendationService] Converted to 0 StoreResponse objects
 2026-01-28 15:14:03.665 [RecommendationService] Sample StoreResponse types (first 5):
 2026-01-28 15:14:03.686 {"endpoint":"/api/recommendations","method":"POST","ipAddress":"0:0:0:0:0:0:0:1","responseTimeMs":48,"timestamp":"2026-01-28T15:14:03.685487","statusCode":200}
+2026-01-28 16:09:42.335 Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-01-28 16:09:42.363 HikariPool-1 - Shutdown initiated...
+2026-01-28 16:09:42.381 HikariPool-1 - Shutdown completed.

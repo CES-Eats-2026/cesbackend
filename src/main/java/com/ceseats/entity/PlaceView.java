@@ -27,10 +27,10 @@ public class PlaceView {
     private String placeId; // Google Places place_id
 
     @Column(nullable = false)
-    private Long viewCount = 0L; // 조회수
+    private Long viewCount = 0L; //조회수
 
     @Column(nullable = false)
-    private Long last10MinViewCount = 0L; // 10분 전 조회수 (증가량 계산용)
+    private Long last10MinViewCount = 0L; //10분 전 조회수 (증가량 계산용)
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -39,7 +39,7 @@ public class PlaceView {
     private LocalDateTime updatedAt;
 
     @Column(nullable = true)
-    private LocalDateTime last10MinSnapshotAt; // 마지막 스냅샷 저장 시간
+    private LocalDateTime last10MinSnapshotAt; //마지막 스냅샷 저장 시간
 
     @PrePersist
     protected void onCreate() {
