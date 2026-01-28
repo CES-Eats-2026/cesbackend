@@ -38,7 +38,7 @@ public class RecommendationService {
         placeRequest.setLatitude(request.getLatitude());
         placeRequest.setLongitude(request.getLongitude());
         placeRequest.setRadius(radiusMeters);
-        placeRequest.setSortBy("price_asc"); // 기본 정렬
+        placeRequest.setSortBy("price_asc"); //기본 정렬
 
         //PlaceService를 사용하여 장소 검색
         PlaceSearchResponse placeResponse = placeService.searchPlaces(
@@ -77,8 +77,8 @@ public class RecommendationService {
      * PlaceResponse를 StoreResponse로 변환
      */
     private StoreResponse convertToStoreResponse(PlaceResponse place) {
-        // priceLevel 변환: "$", "$$", "$$$" -> 1, 2, 3
-        Integer priceLevel = 2; // 기본값
+        //priceLevel 변환: "$", "$$", "$$$" -> 1, 2, 3
+        Integer priceLevel = 2; //기본값
         if (place.getPriceLevel() != null) {
             switch (place.getPriceLevel()) {
                 case "$":

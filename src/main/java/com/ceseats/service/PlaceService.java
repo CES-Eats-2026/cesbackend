@@ -13,6 +13,7 @@ import com.ceseats.service.google.GooglePlacesClient;
 import com.ceseats.service.google.PlaceDetails;
 import com.ceseats.service.LLMService;
 import com.ceseats.service.ReviewService;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,9 +38,9 @@ import java.util.stream.Collectors;
  * 장소 검색 및 추천 메인 서비스
  */
 @Service
+@Slf4j
 public class PlaceService {
 
-    private static final Logger logger = LoggerFactory.getLogger(PlaceService.class);
 
     @Autowired
     private GooglePlacesClient googlePlacesClient;
@@ -63,29 +64,26 @@ public class PlaceService {
     private final ExecutorService executorService = Executors.newFixedThreadPool(10);
 
     private static final double EARTH_RADIUS_KM = 6371.0;
-    private static final double WALKING_SPEED_KMH = 5.0; // 도보 속도 5km/h
+    private static final double WALKING_SPEED_KMH = 5.0; //도보 속도 5km/h
 
     /**
      * 장소 검색
      * Google API 호출 최소화: DB에서 먼저 조회, 없을 때만 API 호출
      */
     public PlaceSearchResponse searchPlaces(PlaceSearchRequest request, double userLatitude, double userLongitude) {
-        logger.info("[PlaceService] searchPlaces - latitude: {}, longitude: {}, radius: {}", 
-                   request.getLatitude(), request.getLongitude(), request.getRadius());
         
-        // 반경을 km로 변환 (미터 -> km)
+        //반경을 km로 변환 (미터 -> km)
         double radiusKm = request.getRadius() / 1000.0;
         
-        // 1. DB에서 원형 거리 내의 장소들을 먼저 조회 (Google API 호출 최소화)
+        //1. DB에서 원형 거리 내의 장소들을 먼저 조회 (Google API 호출 최소화)
         List<Store> storesInRadius = storeRepository.findStoresWithinRadius(
                 request.getLatitude(),
                 request.getLongitude(),
                 radiusKm
         );
         
-        logger.info("[PlaceService] searchPlaces - found {} stores in radius", storesInRadius.size());
 
-        // 2. DB에 있는 장소들을 PlaceResponse로 변환
+        //2. DB에 있는 장소들을 PlaceResponse로 변환
         List<CompletableFuture<PlaceResponse>> futures = new ArrayList<>();
         Set<String> foundPlaceIds = new HashSet<>();
         
@@ -93,13 +91,10 @@ public class PlaceService {
             foundPlaceIds.add(store.getPlaceId());
             CompletableFuture<PlaceResponse> future = CompletableFuture.supplyAsync(() -> {
                 try {
-                    logger.info("[PlaceService] Processing store - placeId: {}, name: {}", store.getPlaceId(), store.getName());
+                    //reviews와 types를 Redis에서 가져와서 설정함
                     PlaceDetails details = convertStoreToPlaceDetails(store);
-                    // convertStoreToPlaceDetails에서 이미 reviews와 types를 Redis에서 가져와서 설정함
-                    logger.info("[PlaceService] convertStoreToPlaceDetails completed - placeId: {}, types: {}", 
-                               store.getPlaceId(), details.getTypes());
 
-                    // 도보 시간 계산
+                    //도보 시간 계산
                     int walkTimeMinutes = calculateWalkTime(
                             userLatitude,
                             userLongitude,
@@ -107,13 +102,12 @@ public class PlaceService {
                             details.getLongitude()
                     );
 
-                    // 조회수 및 증가량 가져오기
+                    //조회수 및 증가량 가져오기
                     Long viewCount = getViewCount(store.getPlaceId());
                     Long viewCountIncrease = get10MinIncrease(store.getPlaceId());
 
                     return convertToPlaceResponse(details, walkTimeMinutes, viewCount, viewCountIncrease);
                 } catch (Exception e) {
-                    System.err.println("Error processing store " + store.getPlaceId() + ": " + e.getMessage());
                     e.printStackTrace();
                     return null;
                 }
@@ -130,8 +124,6 @@ public class PlaceService {
                 .filter(place -> place != null)
                 .collect(Collectors.toList());
 
-        // Hook 메시지 생성 제거 (추천 메커니즘 제거)
-        // 모든 장소를 동일하게 표시
 
         // 5. 정렬
         if ("price_asc".equals(request.getSortBy())) {

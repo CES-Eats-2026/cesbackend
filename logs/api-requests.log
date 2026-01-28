@@ -2918,3 +2918,18 @@ Caused by: org.postgresql.util.PSQLException: FATAL: database "ceseats" does not
 2026-01-28 15:12:01.763 spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
 2026-01-28 15:12:02.229 Tomcat started on port 8080 (http) with context path ''
 2026-01-28 15:12:02.241 Started CesEatsApplication in 8.598 seconds (process running for 9.924)
+2026-01-28 15:13:39.394 Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-01-28 15:13:39.397 Initializing Servlet 'dispatcherServlet'
+2026-01-28 15:13:39.404 Completed initialization in 7 ms
+2026-01-28 15:13:39.628 [PlaceService] searchPlaces - latitude: 36.1215699, longitude: -115.1651093, radius: 50000
+2026-01-28 15:13:39.721 [PlaceService] searchPlaces - found 0 stores in radius
+2026-01-28 15:13:39.722 [RecommendationService] searchPlaces returned 0 places
+2026-01-28 15:13:39.723 [RecommendationService] Converted to 0 StoreResponse objects
+2026-01-28 15:13:39.723 [RecommendationService] Sample StoreResponse types (first 5):
+2026-01-28 15:13:39.826 {"endpoint":"/api/recommendations","method":"POST","ipAddress":"0:0:0:0:0:0:0:1","responseTimeMs":285,"timestamp":"2026-01-28T15:13:39.820042","statusCode":200}
+2026-01-28 15:14:03.628 [PlaceService] searchPlaces - latitude: 36.1215699, longitude: -115.1651093, radius: 50000
+2026-01-28 15:14:03.664 [PlaceService] searchPlaces - found 0 stores in radius
+2026-01-28 15:14:03.665 [RecommendationService] searchPlaces returned 0 places
+2026-01-28 15:14:03.665 [RecommendationService] Converted to 0 StoreResponse objects
+2026-01-28 15:14:03.665 [RecommendationService] Sample StoreResponse types (first 5):
+2026-01-28 15:14:03.686 {"endpoint":"/api/recommendations","method":"POST","ipAddress":"0:0:0:0:0:0:0:1","responseTimeMs":48,"timestamp":"2026-01-28T15:14:03.685487","statusCode":200}
