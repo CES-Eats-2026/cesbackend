@@ -10,6 +10,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
+
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -18,6 +20,7 @@ import java.util.stream.Collectors;
  * 기존 API 호환성을 위한 RecommendationService
  * 새로운 PlaceService를 사용하여 Google Places API에서 데이터를 가져옴
  */
+@Slf4j
 @Service
 public class RecommendationService {
 
@@ -27,31 +30,24 @@ public class RecommendationService {
     private PlaceService placeService;
 
     public RecommendationResponse getRecommendations(RecommendationRequest request) {
-        logger.info("[RecommendationService] getRecommendations - request type: {}, latitude: {}, longitude: {}, timeOption: {}", 
-                   request.getType(), request.getLatitude(), request.getLongitude(), request.getTimeOption());
-        
-        // timeOption을 반경(미터)으로 변환
-        // 도보 속도 5km/h 기준: timeOption 분 = (timeOption / 60) * 5km = (timeOption / 60) * 5000m
-        // 더 정확하게는: timeOption 분 동안 걸을 수 있는 거리 = (timeOption / 60) * 5000
-        int timeOptionMinutes = Integer.parseInt(request.getTimeOption());
-        // 거리 필터링을 제거하기 위해 매우 큰 반경 사용 (Google Places API 최대값: 50000m)
-        int radiusMeters = 50000; // 50km - 모든 장소를 가져오기 위해 최대값 사용
 
-        // PlaceSearchRequest 생성
+        int radiusMeters = 50000; //50km - 모든 장소를 가져오기 위해 최대값 사용
+
+        //PlaceSearchRequest 생성
         PlaceSearchRequest placeRequest = new PlaceSearchRequest();
         placeRequest.setLatitude(request.getLatitude());
         placeRequest.setLongitude(request.getLongitude());
         placeRequest.setRadius(radiusMeters);
         placeRequest.setSortBy("price_asc"); // 기본 정렬
 
-        // PlaceService를 사용하여 장소 검색
+        //PlaceService를 사용하여 장소 검색
         PlaceSearchResponse placeResponse = placeService.searchPlaces(
                 placeRequest,
                 request.getLatitude(),
                 request.getLongitude()
         );
 
-        logger.info("[RecommendationService] searchPlaces returned {} places", 
+        log.info("[RecommendationService] searchPlaces returned {} places",
                    placeResponse.getPlaces() != null ? placeResponse.getPlaces().size() : 0);
 
         // PlaceResponse를 StoreResponse로 변환

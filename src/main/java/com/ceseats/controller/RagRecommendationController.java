@@ -26,8 +26,6 @@ public class RagRecommendationController {
     public ResponseEntity<Map<String, Object>> getRagRecommendations(
             @RequestBody RagRecommendationRequest request) {
         try {
-            logger.info("[RagRecommendationController] Received RAG recommendation request - latitude: {}, longitude: {}, maxDistanceKm: {}, userPreference: {}",
-                    request.getLatitude(), request.getLongitude(), request.getMaxDistanceKm(), request.getUserPreference());
             
             RagRecommendationService.RagRecommendationResult result = 
                 ragRecommendationService.getRecommendations(request);
