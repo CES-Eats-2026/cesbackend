@@ -39,8 +39,7 @@ public class RagRecommendationService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
-     * Main recommendation flow
-     * Returns recommendation result with reason
+     * LLM 사용해서 장소 추천 부분
      */
     public RagRecommendationResult getRecommendations(RagRecommendationRequest request) {
         
@@ -114,7 +113,6 @@ public class RagRecommendationService {
      */
     public RagRecommendationResult getRandomStores(int count, Double latitude, Double longitude) {
 
-        
         // 반경 내의 모든 장소 가져오기 (50km 반경)
         List<Store> allStores = storeRepository.findStoresWithinRadius(
             latitude,
@@ -169,6 +167,32 @@ public class RagRecommendationService {
             .collect(Collectors.toList());
 
         String reason = String.format("LLM 토큰이 다 사용이 되어, 랜덤 %d개를 반환합니다", recommendations.size());
+        return new RagRecommendationResult(recommendations, reason, true);
+    }
+
+    /**
+     * 타입 필터링 없이 거리만 기준으로 랜덤 장소 반환
+     * typeFilteredPlaceIds가 비었을 때 사용하는 로직을 그대로 노출
+     */
+    public RagRecommendationResult getDistanceOnlyRandomStores(
+        Double latitude,
+        Double longitude,
+        Integer maxDistanceKm
+    ) {
+        //typeFilteredPlaceIds가 비었으면, 거리만 필터링 (랜덤 3개만 반환)
+        List<Store> stores = storeRepository.findRandomStoresWithinRadius(
+            latitude,
+            longitude,
+            maxDistanceKm != null ? maxDistanceKm.doubleValue() : 50.0
+        );
+
+        // Store → PlaceContext → StoreResponse 변환
+        List<PlaceContext> contexts = buildPlaceContexts(stores);
+        List<StoreResponse> recommendations = contexts.stream()
+            .map(this::convertToStoreResponse)
+            .collect(Collectors.toList());
+
+        String reason = String.format("추천 중 오류가 발생하여, 거리 기준으로 랜덤 %d개를 반환합니다", recommendations.size());
         return new RagRecommendationResult(recommendations, reason, true);
     }
 
