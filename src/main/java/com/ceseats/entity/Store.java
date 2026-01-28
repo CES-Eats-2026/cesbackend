@@ -32,6 +32,12 @@ public class Store {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "link")
+    private String link;//googleMapsLinks >  placeUri
+
+    @Column(name = "review", columnDefinition = "TEXT")
+    @Lob
+    private String review; //reviewSummary > text > text
 
     @PrePersist
     protected void onCreate() {

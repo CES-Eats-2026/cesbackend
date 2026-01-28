@@ -203,7 +203,7 @@ public class PlaceService {
         // 타입 결정 (Google Places API types 기반)
         String type = determinePlaceType(details.getTypes());
         
-        logger.info("[PlaceService] convertToPlaceResponse - placeId: {}, name: {}, types: {}, typesSize: {}, determinedType: {}", 
+        log.info("[PlaceService] convertToPlaceResponse - placeId: {}, name: {}, types: {}, typesSize: {}, determinedType: {}", 
                    details.getPlaceId(), details.getName(), details.getTypes(), 
                    details.getTypes() != null ? details.getTypes().size() : 0, type);
         
@@ -400,34 +400,26 @@ public class PlaceService {
                 return;
             }
 
-            // 새 Store 엔티티 생성
+            // 새 Store 엔티티 생성 (간소화된 필드만 사용)
             Store store = new Store();
             store.setPlaceId(details.getPlaceId());
             store.setName(details.getName());
-            
+
             store.setLatitude(details.getLatitude());
             store.setLongitude(details.getLongitude());
-            
-            // 가격 수준을 문자열 형식으로 변환 (예: "$10 ~ $20")
-            String priceLevelStr = convertPriceLevelToString(details.getPriceLevel());
-            store.setPriceLevel(priceLevelStr);
-            
-            // 한줄평 (reason) 생성
-            String reason = generateCesReason(details);
-            // reason이 null이면 기본값 사용 (데이터베이스 not-null 제약조건 위반 방지)
-            if (reason == null || reason.isEmpty()) {
-                String type = determinePlaceType(details.getTypes());
-                reason = generateFallbackCesReason(type);
-            }
-            if (reason == null || reason.isEmpty()) {
-                reason = "CES 참가자들이 자주 찾는 인기 장소";
-            }
-            store.setReason(reason);
-            
-            // address 저장
+
+            // address 저장 (옵셔널)
             if (details.getAddress() != null && !details.getAddress().isEmpty()) {
                 store.setAddress(details.getAddress());
             }
+
+            // Google Map 링크 저장 (placeUri)
+            String mapUrl = googlePlacesClient.generateGoogleMapUrl(details.getPlaceId());
+            store.setLink(mapUrl);
+
+            // 리뷰 요약 또는 CES reason을 review 컬럼에 저장
+            String reviewSummary = generateCesReason(details);
+            store.setReview(reviewSummary);
             
             // reviews를 Redis에 저장 (최대 5개)
             if (details.getReviews() != null && !details.getReviews().isEmpty()) {
@@ -469,7 +461,7 @@ public class PlaceService {
             storeRepository.save(store);
             System.out.println("✅ Saved store to PostgreSQL: " + store.getName() + " (" + store.getPlaceId() + ")");
             System.out.println("   - Address: " + (store.getAddress() != null ? store.getAddress() : "null"));
-            System.out.println("   - Reason: " + (store.getReason() != null ? store.getReason().substring(0, Math.min(50, store.getReason().length())) + "..." : "null"));
+            System.out.println("   - Review: " + (store.getReview() != null ? store.getReview().substring(0, Math.min(50, store.getReview().length())) + "..." : "null"));
         } catch (DataIntegrityViolationException e) {
             // Unique constraint 위반 (동시에 여러 요청이 들어온 경우)
             // 이미 다른 요청에서 저장되었으므로 무시
@@ -484,20 +476,19 @@ public class PlaceService {
      * Store 엔티티를 PlaceDetails로 변환 (DB에서 가져온 데이터를 API 응답 형식으로 변환)
      */
     private PlaceDetails convertStoreToPlaceDetails(Store store) {
-        logger.info("[PlaceService] convertStoreToPlaceDetails START - placeId: {}, name: {}", store.getPlaceId(), store.getName());
+        log.info("[PlaceService] convertStoreToPlaceDetails START - placeId: {}, name: {}", store.getPlaceId(), store.getName());
         
         PlaceDetails details = new PlaceDetails();
         details.setPlaceId(store.getPlaceId());
         details.setName(store.getName());
         details.setLatitude(store.getLatitude());
         details.setLongitude(store.getLongitude());
-        
-        // 가격 수준 변환 (문자열 -> Integer)
-        Integer googlePriceLevel = convertStringToGooglePriceLevel(store.getPriceLevel());
-        details.setPriceLevel(googlePriceLevel);
-        
-        // DB에 저장된 정보만 있으므로 나머지는 null 또는 기본값
-        details.setOneLineSummary(store.getReason());
+
+        // 가격 수준은 더 이상 Store에 저장하지 않으므로 기본값 사용
+        details.setPriceLevel(2); // 기본 가격 레벨
+
+        // review 컬럼을 한 줄 요약으로 사용
+        details.setOneLineSummary(store.getReview());
         
         // Redis에서 reviews 가져오기
         List<Map<String, Object>> reviewsFromRedis = reviewService.getReviews(store.getPlaceId());
@@ -518,22 +509,22 @@ public class PlaceService {
         }
 
         // Redis에서 types 가져오기
-        logger.info("[PlaceService] convertStoreToPlaceDetails - calling reviewService.getTypes for placeId: {}", store.getPlaceId());
+        log.info("[PlaceService] convertStoreToPlaceDetails - calling reviewService.getTypes for placeId: {}", store.getPlaceId());
         List<String> typesFromRedis = reviewService.getTypes(store.getPlaceId());
-        logger.info("[PlaceService] convertStoreToPlaceDetails - placeId: {}, storeName: {}, typesFromRedis: {}, typesSize: {}", 
+        log.info("[PlaceService] convertStoreToPlaceDetails - placeId: {}, storeName: {}, typesFromRedis: {}, typesSize: {}", 
                    store.getPlaceId(), store.getName(), typesFromRedis, typesFromRedis != null ? typesFromRedis.size() : 0);
         if (typesFromRedis != null && !typesFromRedis.isEmpty()) {
             details.setTypes(typesFromRedis);
-            logger.info("[PlaceService] convertStoreToPlaceDetails - types set to PlaceDetails - placeId: {}, types: {}", 
+            log.info("[PlaceService] convertStoreToPlaceDetails - types set to PlaceDetails - placeId: {}, types: {}", 
                        store.getPlaceId(), typesFromRedis);
         } else {
-            logger.warn("[PlaceService] convertStoreToPlaceDetails - WARNING: typesFromRedis is null or empty - placeId: {}", 
+            log.warn("[PlaceService] convertStoreToPlaceDetails - WARNING: typesFromRedis is null or empty - placeId: {}", 
                        store.getPlaceId());
             // types가 null이면 빈 리스트로 설정하여 NPE 방지
             details.setTypes(new ArrayList<>());
         }
         
-        logger.info("[PlaceService] convertStoreToPlaceDetails END - placeId: {}, final types: {}", 
+        log.info("[PlaceService] convertStoreToPlaceDetails END - placeId: {}, final types: {}", 
                    store.getPlaceId(), details.getTypes());
         
         return details;
@@ -733,14 +724,14 @@ public class PlaceService {
                 return;
             }
 
-            // 새 Store 엔티티 생성
+            // 새 Store 엔티티 생성 (간소화된 필드만 사용)
             Store store = new Store();
             store.setPlaceId(placeId);
-            
+
             // name 추출: name 필드에서 "places/" 접두사 제거하거나 displayName 사용
             String storeName = extractStoreName(placeData);
             store.setName(storeName);
-            
+
             // location 추출
             if (placeData.getLocation() != null) {
                 store.setLatitude(placeData.getLocation().getLatitude());
@@ -749,20 +740,7 @@ public class PlaceService {
                 System.err.println("Location is required for place: " + placeId);
                 return;
             }
-            
-            // price_level 추출 및 변환
-            // 우선순위: priceLevelString (enum) > priceLevel (Integer)
-            String priceLevelStr = null;
-            if (placeData.getPriceLevelString() != null && !placeData.getPriceLevelString().isEmpty()) {
-                priceLevelStr = convertPriceLevelEnumToString(placeData.getPriceLevelString());
-            } else if (placeData.getPriceLevel() != null) {
-                priceLevelStr = convertPriceLevelToString(placeData.getPriceLevel());
-            }
-            if (priceLevelStr == null) {
-                priceLevelStr = "$15 ~ $25"; // 기본값
-            }
-            store.setPriceLevel(priceLevelStr);
-            
+
             // address 추출 및 저장
             if (placeData.getFormattedAddress() != null && !placeData.getFormattedAddress().isEmpty()) {
                 store.setAddress(placeData.getFormattedAddress());
@@ -770,22 +748,15 @@ public class PlaceService {
             } else {
                 System.out.println("WARNING: No address for place: " + placeId + " (formattedAddress is null or empty)");
             }
-            
-            // reason (한줄평) 생성 - reviewSummary 우선, 없으면 editorialSummary/reviews 사용
-            String reason = generateCesReasonFromJson(placeData);
-            // reason이 null이거나 비어있으면 기본값 사용 (reviewSummary가 없어도 문제없음)
-            if (reason == null || reason.isEmpty()) {
-                String type = determinePlaceTypeFromTypes(placeData.getTypes());
-                reason = generateFallbackCesReason(type);
-                System.out.println("Using fallback reason for place: " + placeId + " (reviewSummary not available)");
+
+            // Google Maps 링크 저장
+            if (placeData.getGoogleMapsUri() != null && !placeData.getGoogleMapsUri().isEmpty()) {
+                store.setLink(placeData.getGoogleMapsUri());
             }
-            // reason이 여전히 null이면 최종 fallback 사용 (데이터베이스 not-null 제약조건 위반 방지)
-            if (reason == null || reason.isEmpty()) {
-                reason = "CES 참가자들이 자주 찾는 인기 장소";
-                System.err.println("WARNING: Reason is still null for place: " + placeId + ", using final fallback");
-            }
-            store.setReason(reason);
-            System.out.println("Setting reason for place " + placeId + ": " + (reason != null ? reason.substring(0, Math.min(50, reason.length())) + "..." : "null"));
+
+            // reviewSummary / editorial / 리뷰 기반 한 줄 리뷰를 review 컬럼에 저장
+            String reviewText = generateCesReasonFromJson(placeData);
+            store.setReview(reviewText);
             
             // types를 Redis에 저장 (DB 저장 전에 먼저 저장)
             if (placeData.getTypes() != null && !placeData.getTypes().isEmpty()) {
@@ -808,91 +779,11 @@ public class PlaceService {
                 System.out.println("No types to save for place: " + placeId + " (types is null or empty)");
             }
             
-            // reviews를 Redis에 저장 (최대 5개, DB 저장 전에 먼저 저장)
-            if (placeData.getReviews() != null && !placeData.getReviews().isEmpty()) {
-                System.out.println("=== Processing reviews for place: " + placeId + " ===");
-                System.out.println("Total reviews received: " + placeData.getReviews().size());
-                
-                List<Map<String, Object>> reviewsList = placeData.getReviews().stream()
-                        .limit(5) // 최대 5개만 저장
-                        .map(review -> {
-                            Map<String, Object> reviewMap = new java.util.HashMap<>();
-                            
-                            // 디버깅: 첫 번째 리뷰의 구조 확인
-                            if (placeData.getReviews().indexOf(review) == 0) {
-                                System.out.println("Sample review structure:");
-                                System.out.println("  - name: " + review.getName());
-                                System.out.println("  - rating: " + review.getRating());
-                                System.out.println("  - text: " + (review.getText() != null ? (review.getText().getText() != null ? review.getText().getText().substring(0, Math.min(50, review.getText().getText().length())) + "..." : "null") : "null"));
-                                System.out.println("  - authorAttribution: " + (review.getAuthorAttribution() != null ? review.getAuthorAttribution().getDisplayName() : "null"));
-                                System.out.println("  - publishTime: " + review.getPublishTime());
-                                System.out.println("  - relativePublishTimeDescription: " + review.getRelativePublishTimeDescription());
-                            }
-                            
-                            // authorName 추출: authorAttribution.displayName 우선, 없으면 author (레거시)
-                            String authorName = "";
-                            if (review.getAuthorAttribution() != null && review.getAuthorAttribution().getDisplayName() != null) {
-                                authorName = review.getAuthorAttribution().getDisplayName();
-                            } else if (review.getAuthor() != null) {
-                                authorName = review.getAuthor();
-                            }
-                            reviewMap.put("authorName", authorName);
-                            
-                            // rating 추출 (null 체크)
-                            reviewMap.put("rating", review.getRating() != null ? review.getRating() : 0);
-                            
-                            // text 추출: text.text 우선, 없으면 레거시 text 필드
-                            String reviewText = "";
-                            if (review.getText() != null && review.getText().getText() != null) {
-                                reviewText = review.getText().getText();
-                            }
-                            reviewMap.put("text", reviewText);
-                            
-                            // publishTime을 Unix timestamp로 변환
-                            Long time = null;
-                            if (review.getPublishTimeUnix() != null) {
-                                time = review.getPublishTimeUnix();
-                            } else if (review.getPublishTime() != null && !review.getPublishTime().isEmpty()) {
-                                time = parseIso8601ToUnix(review.getPublishTime());
-                            }
-                            reviewMap.put("time", time);
-                            
-                            // relativeTimeDescription 추출
-                            String relativeTime = review.getRelativePublishTimeDescription() != null ? 
-                                                 review.getRelativePublishTimeDescription() : "";
-                            reviewMap.put("relativeTimeDescription", relativeTime);
-                            
-                            return reviewMap;
-                        })
-                        .filter(reviewMap -> {
-                            // text가 비어있지 않은 리뷰만 저장
-                            String text = (String) reviewMap.get("text");
-                            boolean isValid = text != null && !text.isEmpty();
-                            if (!isValid) {
-                                System.out.println("Filtering out review with empty text (author: " + reviewMap.get("authorName") + ")");
-                            }
-                            return isValid;
-                        })
-                        .collect(Collectors.toList());
-                
-                System.out.println("Valid reviews after filtering: " + reviewsList.size() + " out of " + Math.min(5, placeData.getReviews().size()));
-                
-                if (!reviewsList.isEmpty()) {
-                    System.out.println("Saving " + reviewsList.size() + " reviews to Redis for place: " + placeId);
-                    reviewService.setReviews(placeId, reviewsList);
-                    System.out.println("Reviews saved to Redis for place: " + placeId);
-                } else {
-                    System.out.println("No valid reviews to save for place: " + placeId + " (all reviews have empty text)");
-                }
-            } else {
-                System.out.println("No reviews to save for place: " + placeId + " (reviews is null or empty)");
-            }
-            
             // DB에 저장
             storeRepository.save(store);
             System.out.println("✅ Saved store to database: " + store.getName() + " (" + store.getPlaceId() + ")");
             System.out.println("   - Address: " + (store.getAddress() != null ? store.getAddress() : "null"));
-            System.out.println("   - Reason: " + (store.getReason() != null ? store.getReason().substring(0, Math.min(50, store.getReason().length())) + "..." : "null"));
+            System.out.println("   - Review: " + (store.getReview() != null ? store.getReview().substring(0, Math.min(50, store.getReview().length())) + "..." : "null"));
         } catch (DataIntegrityViolationException e) {
             System.out.println("Store already exists (unique constraint): " + placeId + " - " + e.getMessage());
         } catch (Exception e) {

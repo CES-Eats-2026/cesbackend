@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api")
 @CrossOrigin(origins = {"https://ceseats.store", "https://cesfront.vercel.app", "http://localhost:3000"})
-public class RecommendationController {
+public class StoreSaveController {
 
     @Autowired
     private RecommendationService recommendationService;
