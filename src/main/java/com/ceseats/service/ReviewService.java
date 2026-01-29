@@ -128,15 +128,42 @@ public class ReviewService {
             redisTemplate.opsForValue().set(placeTypesKey, types);
             System.out.println("Successfully saved " + types.size() + " types to Redis for place: " + placeId + " (key: " + placeTypesKey + ")");
 
-            // 2) type 기준 placeId Set 저장 (새 구조: type -> placeIds)
-            //    예: "restaurant" -> { place1, place2, ... }
+            // 2) type 기준 placeId 배열(List) 저장 (요청 사양: type -> [placeId...])
+            //    예: "restaurant" -> ["place1", "place2", ...]
             for (String type : types) {
                 if (type == null || type.isEmpty()) {
                     continue;
                 }
                 String typeKey = "type:" + type;
-                redisTemplate.opsForSet().add(typeKey, placeId);
-                System.out.println("Added placeId " + placeId + " to type key: " + typeKey);
+                // 기존 값 읽기
+                Object existing = redisTemplate.opsForValue().get(typeKey);
+                java.util.List<String> placeIdList = new java.util.ArrayList<>();
+                if (existing instanceof java.util.List) {
+                    @SuppressWarnings("unchecked")
+                    java.util.List<Object> rawList = (java.util.List<Object>) existing;
+                    for (Object o : rawList) {
+                        if (o != null) {
+                            placeIdList.add(o.toString());
+                        }
+                    }
+                } else if (existing instanceof String) {
+                    // 혹시 문자열(JSON 등)로 저장되어 있는 경우를 방어적으로 처리
+                    try {
+                        java.util.List<String> parsed = objectMapper.readValue(
+                                (String) existing,
+                                new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {}
+                        );
+                        placeIdList.addAll(parsed);
+                    } catch (Exception ignore) {
+                    }
+                }
+
+                if (!placeIdList.contains(placeId)) {
+                    placeIdList.add(placeId);
+                }
+
+                redisTemplate.opsForValue().set(typeKey, placeIdList);
+                System.out.println("Updated type key: " + typeKey + " with placeIds: " + placeIdList);
             }
 
             // 기본적인 존재 여부만 확인 (디버그 용)

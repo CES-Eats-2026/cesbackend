@@ -1,7 +1,7 @@
 package com.ceseats.service;
 
 import com.ceseats.dto.request.PlaceDataRequest;
-import com.ceseats.dto.request.PlaceSearchRequest;
+import com.ceseats.dto.request.PlaceSearchRequest;  // dto/request/PlaceSearchRequest.java
 import com.ceseats.dto.response.PlaceResponse;
 import com.ceseats.dto.response.PlaceSearchResponse;
 import com.ceseats.entity.PlaceView;
@@ -530,54 +530,9 @@ public class PlaceService {
         return details;
     }
 
-    /**
-     * Google 가격 수준(0-4)을 문자열 형식("$10 ~ $20")으로 변환
-     * 가공된 price_level을 PostgreSQL에 저장
-     */
-    private String convertPriceLevelToString(Integer googlePriceLevel) {
-        if (googlePriceLevel == null) {
-            return "$15 ~ $25"; // 기본값
-        }
-        // Google API: 0=무료, 1=저렴, 2=보통, 3=비쌈, 4=매우비쌈
-        // 가공된 형식으로 변환하여 PostgreSQL에 저장
-        switch (googlePriceLevel) {
-            case 0:
-                return "$0 ~ $10"; // 무료 또는 매우 저렴
-            case 1:
-                return "$10 ~ $20"; // 저렴
-            case 2:
-                return "$20 ~ $40"; // 보통
-            case 3:
-                return "$40 ~ $60"; // 비쌈
-            case 4:
-                return "$60 ~ $100"; // 매우 비쌈
-            default:
-                return "$15 ~ $25"; // 기본값
-        }
-    }
 
     /**
-     * 문자열 형식("$10 ~ $20")을 Google 가격 수준(0-4)으로 변환
-     */
-    private Integer convertStringToGooglePriceLevel(String priceLevelStr) {
-        if (priceLevelStr == null || priceLevelStr.isEmpty()) {
-            return 2; // 기본값
-        }
-        // 간단한 파싱: "$10 ~ $20" 형식에서 첫 번째 숫자 추출
-        if (priceLevelStr.contains("$10") || priceLevelStr.contains("$15")) {
-            return 1;
-        } else if (priceLevelStr.contains("$20")) {
-            return 2;
-        } else if (priceLevelStr.contains("$40")) {
-            return 3;
-        } else if (priceLevelStr.contains("$60")) {
-            return 4;
-        }
-        return 2; // 기본값
-    }
-
-    /**
-     * CES 이유 생성 (LLM 또는 기본값)
+     * 리뷰 이유 생성 (LLM 또는 기본값)
      */
     private String generateCesReason(PlaceDetails details) {
         try {
@@ -610,18 +565,48 @@ public class PlaceService {
     }
 
     /**
-     * 기본 CES 이유 생성
+     * 기본 CES 이유 생성 (Table A 타입별 한 줄 문구)
      */
     private String generateFallbackCesReason(String type) {
+        if (type == null) return "CES 참가자들이 자주 찾는 인기 장소";
         switch (type) {
             case "fastfood":
                 return "빠른 식사와 휴식에 완벽한 장소";
             case "cafe":
+            case "bakery":
                 return "회의나 작업하기 좋은 분위기";
             case "bar":
+            case "night_club":
                 return "CES 후 네트워킹과 휴식에 최적";
             case "restaurant":
                 return "CES 참가자들이 자주 찾는 인기 레스토랑";
+            case "shopping_mall":
+            case "department_store":
+            case "store":
+                return "쇼핑과 여유를 즐기기 좋은 장소";
+            case "supermarket":
+            case "convenience_store":
+                return "필요한 것을 바로 구하기 좋은 장소";
+            case "park":
+            case "tourist_attraction":
+                return "산책과 휴식에 좋은 장소";
+            case "museum":
+            case "art_gallery":
+                return "문화·전시를 즐기기 좋은 장소";
+            case "lodging":
+                return "CES 참가자들이 많이 이용하는 숙소";
+            case "gym":
+            case "spa":
+                return "휴식과 스트레칭에 좋은 장소";
+            case "library":
+            case "university":
+            case "school":
+                return "조용히 일하거나 공부하기 좋은 장소";
+            case "subway_station":
+            case "train_station":
+            case "bus_station":
+            case "airport":
+                return "이동 시 편리한 거점";
             default:
                 return "CES 참가자들이 자주 찾는 인기 장소";
         }
@@ -633,7 +618,7 @@ public class PlaceService {
      */
     public void prefetchAndStorePlaces(double latitude, double longitude, double radiusMeters, List<String> includedTypes, int maxResultCount) {
         try {
-            // Google Places API v1 호출 (Place Details API 호출 불필요 - searchNearby 응답에 모든 정보 포함)
+            //호출
             List<com.ceseats.dto.response.SearchNearbyResponse.Place> places = googlePlacesClient.searchNearbyV1(
                     latitude,
                     longitude,
@@ -666,10 +651,10 @@ public class PlaceService {
                         continue; // 이미 있으면 스킵
                     }
 
-                    // SearchNearbyResponse.Place를 PlaceDataRequest로 변환
+                    //SearchNearbyResponse.Place를 PlaceDataRequest로 변환
                     PlaceDataRequest placeData = convertSearchNearbyPlaceToPlaceDataRequest(place);
                     if (placeData != null && placeData.getLocation() != null) {
-                        // DB에 저장 (가공된 price_level 포함, reviews와 types는 Redis에 저장)
+                        //DB에 저장
                         savePlaceDataFromJson(placeData);
                         savedCount++;
                         System.out.println("Successfully saved place: " + placeId);
@@ -822,142 +807,57 @@ public class PlaceService {
     }
 
     /**
-     * PlaceDataRequest에서 openNow 추출
-     * 우선순위: regularOpeningHours.openNow > currentOpeningHours.openNow > openingHours.openNow > openNow
-     */
-    private Boolean extractOpenNow(PlaceDataRequest placeData) {
-        if (placeData.getRegularOpeningHours() != null && placeData.getRegularOpeningHours().getOpenNow() != null) {
-            return placeData.getRegularOpeningHours().getOpenNow();
-        }
-        if (placeData.getCurrentOpeningHours() != null && placeData.getCurrentOpeningHours().getOpenNow() != null) {
-            return placeData.getCurrentOpeningHours().getOpenNow();
-        }
-        if (placeData.getOpeningHours() != null && placeData.getOpeningHours().getOpenNow() != null) {
-            return placeData.getOpeningHours().getOpenNow();
-        }
-        if (placeData.getOpenNow() != null) {
-            return placeData.getOpenNow();
-        }
-        return null;
-    }
-
-    /**
-     * PlaceDataRequest에서 CES reason 생성
-     * 우선순위: reviewSummary.text.text > editorialSummary > reviews > fallback
-     * reviewSummary가 없어도 null이 허용되며, fallback 로직으로 처리됨
+     * PlaceDataRequest에서 Store.review용 CES reason 생성
+     * 우선순위: reviewSummary.text.text > fallback (타입 기반)
      */
     private String generateCesReasonFromJson(PlaceDataRequest placeData) {
-        // 1. reviewSummary.text.text 우선 사용 (API 요청 시 제공되는 리뷰 요약)
-        // reviewSummary가 없어도 정상적으로 다음 단계로 진행
-        System.out.println("=== Checking reviewSummary for reason generation ===");
-        System.out.println("reviewSummary is null: " + (placeData.getReviewSummary() == null));
-        
-        if (placeData.getReviewSummary() != null) {
-            System.out.println("reviewSummary.text is null: " + (placeData.getReviewSummary().getText() == null));
-            if (placeData.getReviewSummary().getText() != null) {
-                System.out.println("reviewSummary.text.text is null: " + (placeData.getReviewSummary().getText().getText() == null));
-                if (placeData.getReviewSummary().getText().getText() != null) {
-                    System.out.println("reviewSummary.text.text is empty: " + placeData.getReviewSummary().getText().getText().isEmpty());
-                }
-            }
+        if (placeData.getReviewSummary() != null
+                && placeData.getReviewSummary().getText() != null
+                && placeData.getReviewSummary().getText().getText() != null
+                && !placeData.getReviewSummary().getText().getText().isEmpty()) {
+            return placeData.getReviewSummary().getText().getText();
         }
-        
-        if (placeData.getReviewSummary() != null && 
-            placeData.getReviewSummary().getText() != null &&
-            placeData.getReviewSummary().getText().getText() != null &&
-            !placeData.getReviewSummary().getText().getText().isEmpty()) {
-            String reviewSummaryText = placeData.getReviewSummary().getText().getText();
-            System.out.println("✅ Using reviewSummary.text.text for reason: " + reviewSummaryText.substring(0, Math.min(50, reviewSummaryText.length())) + "...");
-            return reviewSummaryText;
-        }
-        
-        // reviewSummary가 없거나 비어있으면 다음 단계로 진행 (정상 동작)
-        System.out.println("⚠️ reviewSummary not available, trying editorialSummary...");
-        
-        // 2. editorialSummary 사용
-        String description = "";
-        if (placeData.getEditorialSummary() != null) {
-            // text 필드 우선 사용
-            if (placeData.getEditorialSummary().getText() != null && !placeData.getEditorialSummary().getText().isEmpty()) {
-                description = placeData.getEditorialSummary().getText();
-                System.out.println("✅ Using editorialSummary.text for reason: " + description.substring(0, Math.min(50, description.length())) + "...");
-                return description;
-            } else if (placeData.getEditorialSummary().getOverview() != null) {
-                description = placeData.getEditorialSummary().getOverview();
-                System.out.println("✅ Using editorialSummary.overview for reason: " + description.substring(0, Math.min(50, description.length())) + "...");
-                return description;
-            }
-        }
-        System.out.println("⚠️ editorialSummary not available, trying reviews...");
-        
-        // 3. reviews 텍스트 수집
-        String reviewsText = "";
-        if (placeData.getReviews() != null && !placeData.getReviews().isEmpty()) {
-            reviewsText = placeData.getReviews().stream()
-                    .filter(r -> {
-                        // text 객체의 text 필드 또는 레거시 text 필드 확인
-                        if (r.getText() != null && r.getText().getText() != null && !r.getText().getText().isEmpty()) {
-                            return true;
-                        }
-                        // 레거시: text가 단순 String인 경우 (이미 처리됨)
-                        return false;
-                    })
-                    .map(r -> {
-                        // text 객체의 text 필드 우선 사용
-                        if (r.getText() != null && r.getText().getText() != null) {
-                            return r.getText().getText();
-                        }
-                        // 레거시: 단순 String (이미 처리되지 않음)
-                        return "";
-                    })
-                    .filter(text -> !text.isEmpty())
-                    .limit(5) // 상위 5개만 사용
-                    .collect(Collectors.joining(" "));
-        }
-        
-        // 4. 타입 결정
         String type = determinePlaceTypeFromTypes(placeData.getTypes());
-        
-        // 5. LLM으로 CES 이유 생성 (editorialSummary나 reviews가 있는 경우)
-        String storeName = extractStoreName(placeData);
-        if (llmService != null && (!reviewsText.isEmpty() || !description.isEmpty())) {
-            try {
-                String llmReason = llmService.generateCesReason(storeName, type, reviewsText, description);
-                // LLM이 null을 반환하지 않도록 보장
-                if (llmReason != null && !llmReason.isEmpty()) {
-                    return llmReason;
-                }
-            } catch (Exception e) {
-                System.err.println("Error generating CES reason with LLM: " + e.getMessage());
-                e.printStackTrace();
-            }
-        }
-        
-        // 6. Fallback: 기본 이유 생성 (항상 null이 아닌 값 반환)
         String fallbackReason = generateFallbackCesReason(type);
-        return fallbackReason != null ? fallbackReason : "CES 참가자들이 자주 찾는 인기 장소";
+        return fallbackReason != null ? fallbackReason : "참가자들이 자주 찾는 인기 장소";
     }
 
     /**
      * types 리스트에서 장소 타입 결정
+     * Google Places API v1 Table A 타입(음식·쇼핑·관광·숙박·교통 등) 반영
      */
     private String determinePlaceTypeFromTypes(List<String> types) {
         if (types == null || types.isEmpty()) {
-            return "restaurant";
+            return "other";
         }
-        
         for (String type : types) {
-            if (type.equals("restaurant") || type.equals("food") || type.equals("meal_takeaway")) {
-                return "restaurant";
-            } else if (type.equals("cafe") || type.equals("bakery")) {
-                return "cafe";
-            } else if (type.equals("bar") || type.equals("night_club")) {
-                return "bar";
-            } else if (type.contains("fast") || type.equals("meal_delivery")) {
-                return "fastfood";
-            }
+            // 음식·카페
+            if (type.equals("restaurant") || type.equals("food") || type.equals("meal_takeaway")) return "restaurant";
+            if (type.equals("cafe") || type.equals("bakery")) return "cafe";
+            if (type.equals("bar") || type.equals("night_club")) return "bar";
+            if (type.contains("fast") || type.equals("meal_delivery")) return "fastfood";
+            // 쇼핑
+            if (type.equals("shopping_mall")) return "shopping_mall";
+            if (type.equals("supermarket") || type.equals("convenience_store")) return type;
+            if (type.equals("store") || type.equals("department_store") || type.equals("clothing_store")
+                    || type.equals("shoe_store") || type.equals("jewelry_store") || type.equals("electronics_store")
+                    || type.equals("furniture_store") || type.equals("home_goods_store") || type.equals("hardware_store")
+                    || type.equals("book_store") || type.equals("pet_store") || type.equals("liquor_store")) return type;
+            // 관광·문화
+            if (type.equals("tourist_attraction") || type.equals("park") || type.equals("museum")
+                    || type.equals("art_gallery") || type.equals("casino")) return type;
+            // 숙박·편의
+            if (type.equals("lodging") || type.equals("spa") || type.equals("gym")) return type;
+            if (type.equals("pharmacy") || type.equals("hospital") || type.equals("bank") || type.equals("atm")) return type;
+            // 교통
+            if (type.equals("gas_station") || type.equals("parking") || type.equals("subway_station")
+                    || type.equals("train_station") || type.equals("bus_station") || type.equals("airport")) return type;
+            // 종교·교육·기타
+            if (type.equals("church") || type.equals("hindu_temple") || type.equals("mosque") || type.equals("synagogue")) return type;
+            if (type.equals("school") || type.equals("university") || type.equals("library")) return type;
+            if (type.equals("zoo") || type.equals("aquarium") || type.equals("amusement_park")) return type;
         }
-        return "restaurant";
+        return types.get(0);
     }
 
     /**
@@ -975,32 +875,6 @@ public class PlaceService {
     }
 
     /**
-     * Google Places API v1의 priceLevel enum을 문자열 형식으로 변환
-     * "PRICE_LEVEL_FREE", "PRICE_LEVEL_INEXPENSIVE", "PRICE_LEVEL_MODERATE", 
-     * "PRICE_LEVEL_EXPENSIVE", "PRICE_LEVEL_VERY_EXPENSIVE"
-     */
-    private String convertPriceLevelEnumToString(String priceLevelEnum) {
-        if (priceLevelEnum == null || priceLevelEnum.isEmpty()) {
-            return "$15 ~ $25"; // 기본값
-        }
-        
-        switch (priceLevelEnum) {
-            case "PRICE_LEVEL_FREE":
-                return "$0 ~ $10";
-            case "PRICE_LEVEL_INEXPENSIVE":
-                return "$10 ~ $20";
-            case "PRICE_LEVEL_MODERATE":
-                return "$20 ~ $40";
-            case "PRICE_LEVEL_EXPENSIVE":
-                return "$40 ~ $60";
-            case "PRICE_LEVEL_VERY_EXPENSIVE":
-                return "$60 ~ $100";
-            default:
-                return "$15 ~ $25"; // 기본값
-        }
-    }
-    
-    /**
      * SearchNearbyResponse.Place를 PlaceDataRequest로 변환
      * Place Details API 호출 없이 searchNearby 응답만으로 저장하기 위함
      */
@@ -1012,7 +886,7 @@ public class PlaceService {
         PlaceDataRequest placeData = new PlaceDataRequest();
         placeData.setId(place.getId());
         
-        // displayName
+        //displayName
         if (place.getDisplayName() != null) {
             PlaceDataRequest.DisplayName displayName = new PlaceDataRequest.DisplayName();
             displayName.setText(place.getDisplayName().getText());
@@ -1020,7 +894,7 @@ public class PlaceService {
             placeData.setDisplayName(displayName);
         }
         
-        // location
+        //location
         if (place.getLocation() != null) {
             // Google Places API v1 응답: location은 직접 { latitude, longitude } 구조
             Double lat = place.getLocation().getLatitude();
@@ -1033,51 +907,25 @@ public class PlaceService {
                 placeData.setLocation(location);
                 System.out.println("Location found for " + place.getId() + ": " + lat + ", " + lng);
             } else {
-                // location이 있지만 latitude/longitude가 null인 경우
+                //location이 있지만 latitude/longitude가 null인 경우
                 System.err.println("Warning: Location latitude/longitude is missing for place: " + place.getId() + " (" + 
                     (place.getDisplayName() != null ? place.getDisplayName().getText() : "unknown") + ")");
                 System.err.println("  - place.getLocation().getLatitude(): " + lat);
                 System.err.println("  - place.getLocation().getLongitude(): " + lng);
-                // location이 필수이므로 null 반환하여 저장하지 않음
+                //location이 필수이므로 null 반환하여 저장하지 않음
                 return null;
             }
         } else {
-            // location이 없으면 로그 출력하고 null 반환 (저장 불가)
+            //location이 없으면 로그 출력하고 null 반환 (저장 불가)
             System.err.println("Warning: Location is missing for place: " + place.getId() + " (" + 
                 (place.getDisplayName() != null ? place.getDisplayName().getText() : "unknown") + ")");
-            // location이 필수이므로 null 반환하여 저장하지 않음
+            //location이 필수이므로 null 반환하여 저장하지 않음
             return null;
         }
         
-        // types
         placeData.setTypes(place.getTypes());
-        
-        // priceLevel
-        placeData.setPriceLevel(place.getPriceLevel());
-        
-        // rating
-        placeData.setRating(place.getRating());
-        placeData.setUserRatingCount(place.getUserRatingCount());
-        
-        // formattedAddress
         placeData.setFormattedAddress(place.getFormattedAddress());
-        
-        // phone numbers
-        placeData.setNationalPhoneNumber(place.getNationalPhoneNumber());
-        placeData.setInternationalPhoneNumber(place.getInternationalPhoneNumber());
-        
-        // URIs
-        placeData.setWebsiteUri(place.getWebsiteUri());
         placeData.setGoogleMapsUri(place.getGoogleMapsUri());
-        
-        // editorialSummary
-        if (place.getEditorialSummary() != null) {
-            PlaceDataRequest.EditorialSummary editorialSummary = new PlaceDataRequest.EditorialSummary();
-            editorialSummary.setText(place.getEditorialSummary().getText());
-            editorialSummary.setOverview(place.getEditorialSummary().getOverview());
-            editorialSummary.setLanguageCode(place.getEditorialSummary().getLanguageCode());
-            placeData.setEditorialSummary(editorialSummary);
-        }
         
         // reviewSummary
         if (place.getReviewSummary() != null && place.getReviewSummary().getText() != null) {
@@ -1092,120 +940,6 @@ public class PlaceService {
         } else {
             System.out.println("⚠️ reviewSummary not found in API response for " + place.getId() + 
                 " (place.getReviewSummary() is " + (place.getReviewSummary() == null ? "null" : "not null") + ")");
-        }
-        
-        // reviews
-        if (place.getReviews() != null && !place.getReviews().isEmpty()) {
-            List<PlaceDataRequest.Review> reviews = place.getReviews().stream()
-                    .map(review -> {
-                        PlaceDataRequest.Review reviewDto = new PlaceDataRequest.Review();
-                        reviewDto.setName(review.getName());
-                        reviewDto.setRelativePublishTimeDescription(review.getRelativePublishTimeDescription());
-                        reviewDto.setRating(review.getRating());
-                        
-                        if (review.getText() != null) {
-                            PlaceDataRequest.Review.TextContent textContent = new PlaceDataRequest.Review.TextContent();
-                            textContent.setText(review.getText().getText());
-                            textContent.setLanguageCode(review.getText().getLanguageCode());
-                            reviewDto.setText(textContent);
-                        }
-                        
-                        if (review.getOriginalText() != null) {
-                            PlaceDataRequest.Review.TextContent originalTextContent = new PlaceDataRequest.Review.TextContent();
-                            originalTextContent.setText(review.getOriginalText().getText());
-                            originalTextContent.setLanguageCode(review.getOriginalText().getLanguageCode());
-                            reviewDto.setOriginalText(originalTextContent);
-                        }
-                        
-                        reviewDto.setPublishTime(review.getPublishTime());
-                        reviewDto.setPublishTimeUnix(review.getPublishTimeUnix());
-                        
-                        if (review.getAuthorAttribution() != null) {
-                            PlaceDataRequest.Review.AuthorAttribution authorAttribution = new PlaceDataRequest.Review.AuthorAttribution();
-                            authorAttribution.setDisplayName(review.getAuthorAttribution().getDisplayName());
-                            authorAttribution.setUri(review.getAuthorAttribution().getUri());
-                            authorAttribution.setPhotoUri(review.getAuthorAttribution().getPhotoUri());
-                            reviewDto.setAuthorAttribution(authorAttribution);
-                        }
-                        
-                        return reviewDto;
-                    })
-                    .collect(Collectors.toList());
-            placeData.setReviews(reviews);
-        }
-        
-        // regularOpeningHours
-        if (place.getRegularOpeningHours() != null) {
-            PlaceDataRequest.RegularOpeningHours regularOpeningHours = new PlaceDataRequest.RegularOpeningHours();
-            regularOpeningHours.setOpenNow(place.getRegularOpeningHours().getOpenNow());
-            regularOpeningHours.setWeekdayDescriptions(place.getRegularOpeningHours().getWeekdayDescriptions());
-            regularOpeningHours.setNextOpenTime(place.getRegularOpeningHours().getNextOpenTime());
-            
-            if (place.getRegularOpeningHours().getPeriods() != null) {
-                List<PlaceDataRequest.RegularOpeningHours.Period> periods = place.getRegularOpeningHours().getPeriods().stream()
-                        .map(period -> {
-                            PlaceDataRequest.RegularOpeningHours.Period periodDto = new PlaceDataRequest.RegularOpeningHours.Period();
-                            
-                            if (period.getOpen() != null) {
-                                PlaceDataRequest.RegularOpeningHours.Period.DayTime open = new PlaceDataRequest.RegularOpeningHours.Period.DayTime();
-                                open.setDay(period.getOpen().getDay());
-                                open.setHour(period.getOpen().getHour());
-                                open.setMinute(period.getOpen().getMinute());
-                                periodDto.setOpen(open);
-                            }
-                            
-                            if (period.getClose() != null) {
-                                PlaceDataRequest.RegularOpeningHours.Period.DayTime close = new PlaceDataRequest.RegularOpeningHours.Period.DayTime();
-                                close.setDay(period.getClose().getDay());
-                                close.setHour(period.getClose().getHour());
-                                close.setMinute(period.getClose().getMinute());
-                                periodDto.setClose(close);
-                            }
-                            
-                            return periodDto;
-                        })
-                        .collect(Collectors.toList());
-                regularOpeningHours.setPeriods(periods);
-            }
-            
-            placeData.setRegularOpeningHours(regularOpeningHours);
-        }
-        
-        // currentOpeningHours
-        if (place.getCurrentOpeningHours() != null) {
-            PlaceDataRequest.CurrentOpeningHours currentOpeningHours = new PlaceDataRequest.CurrentOpeningHours();
-            currentOpeningHours.setOpenNow(place.getCurrentOpeningHours().getOpenNow());
-            currentOpeningHours.setWeekdayDescriptions(place.getCurrentOpeningHours().getWeekdayDescriptions());
-            currentOpeningHours.setNextOpenTime(place.getCurrentOpeningHours().getNextOpenTime());
-            
-            if (place.getCurrentOpeningHours().getPeriods() != null) {
-                List<PlaceDataRequest.CurrentOpeningHours.Period> periods = place.getCurrentOpeningHours().getPeriods().stream()
-                        .map(period -> {
-                            PlaceDataRequest.CurrentOpeningHours.Period periodDto = new PlaceDataRequest.CurrentOpeningHours.Period();
-                            
-                            if (period.getOpen() != null) {
-                                PlaceDataRequest.CurrentOpeningHours.Period.DayTime open = new PlaceDataRequest.CurrentOpeningHours.Period.DayTime();
-                                open.setDay(period.getOpen().getDay());
-                                open.setHour(period.getOpen().getHour());
-                                open.setMinute(period.getOpen().getMinute());
-                                periodDto.setOpen(open);
-                            }
-                            
-                            if (period.getClose() != null) {
-                                PlaceDataRequest.CurrentOpeningHours.Period.DayTime close = new PlaceDataRequest.CurrentOpeningHours.Period.DayTime();
-                                close.setDay(period.getClose().getDay());
-                                close.setHour(period.getClose().getHour());
-                                close.setMinute(period.getClose().getMinute());
-                                periodDto.setClose(close);
-                            }
-                            
-                            return periodDto;
-                        })
-                        .collect(Collectors.toList());
-                currentOpeningHours.setPeriods(periods);
-            }
-            
-            placeData.setCurrentOpeningHours(currentOpeningHours);
         }
         
         return placeData;

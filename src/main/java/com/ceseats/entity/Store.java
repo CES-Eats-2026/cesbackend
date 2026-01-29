@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class Store {
+public class Store {//google api 호출했을때 json 응답 내에서 값들의 위치
     @Id
     @Column(name = "place_id", nullable = false, unique = true)
     private String placeId;
@@ -21,19 +21,19 @@ public class Store {
     private String name;
 
     @Column(nullable = false)
-    private Double latitude;
+    private Double latitude; //location > latitude
 
     @Column(nullable = false)
-    private Double longitude;
+    private Double longitude; //location > longitude
 
     @Column(name = "address")
-    private String address; //주소
+    private String address; //formattedAddress
 
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private LocalDateTime createdAt;//현재시각!
 
     @Column(name = "link")
-    private String link;//googleMapsLinks >  placeUri
+    private String link;//googleMapsUri
 
     @Column(name = "review", columnDefinition = "TEXT")
     @Lob

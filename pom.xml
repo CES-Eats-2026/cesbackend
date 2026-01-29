@@ -14,7 +14,7 @@
     <artifactId>ces-eats-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>ces-eats-backend</name>
-    <description>CES Eats Backend API</description>
+    <description>CES Eats Backend API. Build requires JDK 17 (Lombok incompatible with JDK 25).</description>
     <properties>
         <java.version>17</java.version>
     </properties>

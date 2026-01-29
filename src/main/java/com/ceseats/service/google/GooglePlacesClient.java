@@ -436,21 +436,17 @@ public class GooglePlacesClient {
      */
     public List<SearchNearbyResponse.Place> searchNearbyV1(double latitude, double longitude, double radius, List<String> includedTypes, int maxResultCount) {
         if (apiKey == null || apiKey.isEmpty()) {
-            System.err.println("⚠️  Warning: Google Places API key is not set.");
+            System.err.println("Warning: Google Places API key is not set.");
             return new ArrayList<>();
         }
 
         try {
-            // 요청 본문 생성
+            //요청 본문 생성
             SearchNearbyRequest request = new SearchNearbyRequest();
-            // includedTypes가 null이거나 빈 배열이면 여러 음식점 관련 타입들을 명시적으로 포함
-            // Google Places API (New)는 빈 배열일 때 모든 타입을 반환하지 않으므로, 여러 타입을 명시적으로 지정
-            // 참고: https://developers.google.com/maps/documentation/places/web-service/place-types#table-a
-            // Table A 타입은 includedTypes에, Table B 타입(primary types)은 includedPrimaryTypes에 설정
-            // 참고: https://developers.google.com/maps/documentation/places/web-service/place-types
-            // 각 카테고리당 최대 50개 타입 제한
+
+            //각 카테고리당 최대 50개 타입 제한
             if (includedTypes == null || includedTypes.isEmpty()) {
-                // 음식점 및 쇼핑 관련 Table A 타입 우선 포함 (최대 50개)
+                //음식점 및 쇼핑 관련 Table A 타입 포함 (최대 50개)
                 request.setIncludedTypes(List.of(
                     "bakery", "bar", "cafe", "restaurant", "meal_delivery", "meal_takeaway", "night_club",
                     "shopping_mall", "supermarket", "convenience_store", "store", "department_store",
@@ -461,32 +457,13 @@ public class GooglePlacesClient {
                     "gas_station", "parking", "subway_station", "train_station", "bus_station", "airport",
                     "church", "hindu_temple", "mosque", "synagogue",
                     "school", "university", "library", "zoo", "aquarium", "amusement_park"
-                )); // 47개
+                ));
             } else {
                 request.setIncludedTypes(includedTypes);
             }
-            
-            // Table B 타입(primary types) - 음식점 세부 유형 (최대 50개)
-            request.setIncludedPrimaryTypes(List.of(
-                // 음식점 관련 (50개)
-                "afghani_restaurant", "african_restaurant", "american_restaurant", "asian_restaurant",
-                "bar_and_grill", "barbecue_restaurant", "brazilian_restaurant", "breakfast_restaurant", "brunch_restaurant", "buffet_restaurant",
-                "cafeteria", "candy_store", "chinese_restaurant", "coffee_shop", "confectionery",
-                "deli", "dessert_restaurant", "dessert_shop", "diner", "donut_shop",
-                "fast_food_restaurant", "fine_dining_restaurant", "food_court", "french_restaurant",
-                "greek_restaurant", "hamburger_restaurant",
-                "ice_cream_shop", "indian_restaurant", "indonesian_restaurant", "italian_restaurant",
-                "japanese_restaurant", "juice_shop", "korean_restaurant",
-                "lebanese_restaurant", "mediterranean_restaurant", "mexican_restaurant", "middle_eastern_restaurant",
-                "pizza_restaurant", "pub", "ramen_restaurant",
-                "sandwich_shop", "seafood_restaurant", "spanish_restaurant", "steak_house", "sushi_restaurant",
-                 "thai_restaurant", "turkish_restaurant",
-                "vegan_restaurant", "vegetarian_restaurant", "vietnamese_restaurant"
-            )); // 50개
+
             request.setMaxResultCount(maxResultCount);
-            // rankPreference를 POPULARITY로 설정하여 다른 정렬 순서의 결과 얻기 (기본값: DISTANCE)
-            // 이렇게 하면 같은 위치에서도 다른 장소들을 찾을 수 있음
-            request.setRankPreference("POPULARITY");
+            request.setRankPreference("POPULARITY");//추천의 성격 부여
             
             SearchNearbyRequest.LocationRestriction locationRestriction = new SearchNearbyRequest.LocationRestriction();
             SearchNearbyRequest.LocationRestriction.Circle circle = new SearchNearbyRequest.LocationRestriction.Circle();
@@ -498,46 +475,22 @@ public class GooglePlacesClient {
             locationRestriction.setCircle(circle);
             request.setLocationRestriction(locationRestriction);
 
-            // 헤더 설정
+            //헤더 설정
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("X-Goog-Api-Key", apiKey);
-            // 필요한 필드만 요청하여 비용 절감
-            // searchNearby 응답에 필요한 모든 필드 포함 (Place Details API 호출 불필요)
-            headers.set("X-Goog-FieldMask", 
+            //필요한 필드만 요청하여 응답 용량 줄이기
+            headers.set("X-Goog-FieldMask",
                 "places.id," +
                 "places.displayName," +
                 "places.location," +
                 "places.types," +
-                "places.priceLevel," +
-                "places.rating," +
-                "places.userRatingCount," +
-                "places.regularOpeningHours," +
-                "places.currentOpeningHours," +
-                "places.formattedAddress," +
-                "places.nationalPhoneNumber," +
-                "places.internationalPhoneNumber," +
-                "places.websiteUri," +
                 "places.googleMapsUri," +
-                "places.editorialSummary," +
-                "places.reviews," +
-                "places.reviewSummary," +
-                "places.photos");
+                "places.reviewSummary,");
 
             HttpEntity<SearchNearbyRequest> entity = new HttpEntity<>(request, headers);
 
-            // 디버깅: 요청 로깅
-            System.out.println("=== Google Places API v1 Request ===");
-            System.out.println("URL: " + PLACES_V1_SEARCH_NEARBY_URL);
-            try {
-                System.out.println("Request: " + objectMapper.writeValueAsString(request));
-            } catch (Exception ex) {
-                System.out.println("Could not serialize request: " + ex.getMessage());
-            }
-            System.out.println("FieldMask: " + headers.get("X-Goog-FieldMask"));
-            System.out.println("=== End Request ===");
-
-            // API 호출 (String으로 먼저 받아서 원본 JSON 확인)
+            //API 호출 (String으로 먼저 받아서 원본 JSON 확인)
             ResponseEntity<String> rawResponse = restTemplate.exchange(
                     PLACES_V1_SEARCH_NEARBY_URL,
                     HttpMethod.POST,
@@ -545,7 +498,7 @@ public class GooglePlacesClient {
                     String.class
             );
             
-            // 디버깅: 원본 JSON 응답 로깅 (처음 3개 장소의 location 구조 확인)
+            //원본 JSON 응답 로깅 (처음 3개 장소의 location 구조 확인)
             if (rawResponse.getStatusCode().is2xxSuccessful() && rawResponse.getBody() != null) {
                 try {
                     JsonNode rootNode = objectMapper.readTree(rawResponse.getBody());
@@ -584,7 +537,7 @@ public class GooglePlacesClient {
                 }
             }
             
-            // String 응답을 SearchNearbyResponse로 변환
+            //String 응답을 SearchNearbyResponse로 변환
             SearchNearbyResponse responseBody = null;
             if (rawResponse.getStatusCode().is2xxSuccessful() && rawResponse.getBody() != null) {
                 try {
@@ -596,7 +549,7 @@ public class GooglePlacesClient {
                 }
             }
             
-            // ResponseEntity로 래핑 (기존 코드 호환성)
+            // ResponseEntity로 래핑
             ResponseEntity<SearchNearbyResponse> response = new ResponseEntity<>(
                     responseBody,
                     rawResponse.getHeaders(),
@@ -604,12 +557,8 @@ public class GooglePlacesClient {
             );
 
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                // responseBody는 이미 위에서 선언됨
-                
-                // 디버깅: 응답 로깅
-                System.out.println("=== Google Places API v1 Response ===");
-                System.out.println("Response status: " + response.getStatusCode());
-                
+                //responseBody는 이미 위에서 선언됨
+
                 if (responseBody.getPlaces() != null) {
                     System.out.println("Places count: " + responseBody.getPlaces().size());
                     for (SearchNearbyResponse.Place place : responseBody.getPlaces()) {
@@ -620,7 +569,7 @@ public class GooglePlacesClient {
                                 place.getLocation().getLatitude() + ", " + place.getLocation().getLongitude() : "null") : "null"));
                     }
                 } else {
-                    System.out.println("⚠️ Places is null in response");
+                    System.out.println("Places is null in response");
                 }
                 System.out.println("=== End Response ===");
                 

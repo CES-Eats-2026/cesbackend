@@ -13,7 +13,8 @@ import java.util.Map;
 
 /**
  * 장소 데이터 미리 수집을 위한 컨트롤러
- * Google Places API v1을 사용하여 배치 작업으로 사용
+ * Google Places API v1(https://developers.google.com/maps/documentation/places/web-service/nearby-search?hl=ko&_gl=1*bunpvi*_up*MQ..*_ga*MzAxOTI1MTM1LjE3Njk1ODM2NTQ.*_ga_SM8HXJ53K2*czE3Njk1ODM2NTQkbzEkZzAkdDE3Njk1ODM2NTQkajYwJGwwJGgw*_ga_NRWSTWS78N*czE3Njk1ODk1OTQkbzIkZzEkdDE3Njk1ODk1OTYkajU4JGwwJGgw&apix_params=%7B%22fields%22%3A%22*%22%2C%22resource%22%3A%7B%22includedTypes%22%3A%5B%22restaurant%22%5D%2C%22maxResultCount%22%3A10%2C%22locationRestriction%22%3A%7B%22circle%22%3A%7B%22center%22%3A%7B%22latitude%22%3A37.7937%2C%22longitude%22%3A-122.3965%7D%2C%22radius%22%3A500%7D%7D%7D%7D)
+ * 을 사용하여 배치 작업으로 사용
  */
 @RestController
 @RequestMapping("/api/prefetch")
@@ -43,24 +44,16 @@ public class PlacePrefetchController {
             double latitude = request.getLocationRestriction().getCircle().getCenter().getLatitude();
             double longitude = request.getLocationRestriction().getCircle().getCenter().getLongitude();
             double radius = request.getLocationRestriction().getCircle().getRadius();
-            // includedTypes가 null이면 기본값, 빈 배열이면 모든 타입 반환
+            //includedTypes가 null이면 기본값, 빈 배열이면 모든 타입 반환
             List<String> includedTypes = request.getIncludedTypes();
             if (includedTypes == null) {
-                includedTypes = List.of("restaurant"); // 기본값
+                includedTypes = List.of("restaurant"); //기본값
             }
-            // 빈 배열이면 그대로 전달 (모든 타입 반환)
+            //빈 배열이면 그대로 전달 (모든 타입 반환)
             int maxResultCount = request.getMaxResultCount() != null ? request.getMaxResultCount() : 10;
 
-            System.out.println("=== Starting prefetch request ===");
-            System.out.println("Location: (" + latitude + ", " + longitude + ")");
-            System.out.println("Radius: " + radius + "m");
-            System.out.println("Types: " + includedTypes);
-            System.out.println("Max results: " + maxResultCount);
-            
             placeService.prefetchAndStorePlaces(latitude, longitude, radius, includedTypes, maxResultCount);
-            
-            System.out.println("=== Prefetch request completed ===");
-            
+
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "Places prefetched and stored successfully");
@@ -72,7 +65,7 @@ public class PlacePrefetchController {
             
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
-            // Google Places API v1 관련 에러 처리
+            //Google Places API v1 관련 에러 처리
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             

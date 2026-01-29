@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 public class RecommendationRequest {
     private Double latitude;
     private Double longitude;
-    private String timeOption; //"15", "30", "45", "60", "90"
+    private String timeOption; //예시: "15", "30", "45", "60", "90"분
     private String type; //예시: "all", "restaurant", "cafe", "fastfood", "bar"
 }
 

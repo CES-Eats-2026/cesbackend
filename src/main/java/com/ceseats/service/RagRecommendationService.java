@@ -62,19 +62,37 @@ public class RagRecommendationService {
              */
             Set<String> typeFilteredPlaceIds = new HashSet<>();
             
-            //타입별로 Redis에서 place_id Set 조회
+            //타입별로 Redis에서 place_id 배열(List) 조회
             if (filters.getTypes() != null && !filters.getTypes().isEmpty()) {
                 for (String type : filters.getTypes()) {
                     String redisKey = "type:" + type;
-                    Set<Object> placeIds = redisTemplate.opsForSet().members(redisKey);
-                    if (placeIds != null && !placeIds.isEmpty()) {
-                        Set<String> placeIdStrings = placeIds.stream()
-                                .map(obj -> obj != null ? obj.toString() : null)
-                                .filter(id -> id != null)
-                                .collect(Collectors.toSet());
-                        typeFilteredPlaceIds.addAll(placeIdStrings);
-                      
+                    Object value = redisTemplate.opsForValue().get(redisKey);
+                    if (value == null) {
+                        continue;
                     }
+
+                    java.util.List<String> placeIdList = new java.util.ArrayList<>();
+                    if (value instanceof java.util.List) {
+                        @SuppressWarnings("unchecked")
+                        java.util.List<Object> rawList = (java.util.List<Object>) value;
+                        for (Object o : rawList) {
+                            if (o != null) {
+                                placeIdList.add(o.toString());
+                            }
+                        }
+                    } else if (value instanceof String) {
+                        // 방어적으로 문자열(JSON)일 수도 있는 경우 처리
+                        try {
+                            java.util.List<String> parsed = objectMapper.readValue(
+                                    (String) value,
+                                    new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {}
+                            );
+                            placeIdList.addAll(parsed);
+                        } catch (Exception ignore) {
+                        }
+                    }
+
+                    typeFilteredPlaceIds.addAll(placeIdList);
                 }
             }
             

@@ -14,7 +14,6 @@ import java.util.List;
 @AllArgsConstructor
 public class SearchNearbyRequest {
     private List<String> includedTypes;
-    private List<String> includedPrimaryTypes; // Table B 타입 (primary types) - 음식점 세부 유형 등
     private Integer maxResultCount;
     private LocationRestriction locationRestriction;
     private String rankPreference; // "POPULARITY" or "DISTANCE" - 정렬 순서 변경으로 다양한 결과 얻기

@@ -3,9 +3,8 @@ package com.ceseats.service;
 import com.ceseats.dto.RecommendationRequest;
 import com.ceseats.dto.RecommendationResponse;
 import com.ceseats.dto.StoreResponse;
-import com.ceseats.dto.request.PlaceSearchRequest;
-import com.ceseats.dto.response.PlaceResponse;
-import com.ceseats.dto.response.PlaceSearchResponse;
+import com.ceseats.entity.Store;
+import com.ceseats.repository.StoreRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,8 +12,9 @@ import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
 
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * 기존 API 호환성을 위한 RecommendationService
@@ -27,117 +27,69 @@ public class RecommendationService {
     private static final Logger logger = LoggerFactory.getLogger(RecommendationService.class);
 
     @Autowired
-    private PlaceService placeService;
+    private StoreRepository storeRepository;
+
+    @Autowired
+    private ReviewService reviewService;
 
     public RecommendationResponse getRecommendations(RecommendationRequest request) {
 
-        int radiusMeters = 50000; //50km - 모든 장소를 가져오기 위해 최대값 사용
-
-        //PlaceSearchRequest 생성
-        PlaceSearchRequest placeRequest = new PlaceSearchRequest();
-        placeRequest.setLatitude(request.getLatitude());
-        placeRequest.setLongitude(request.getLongitude());
-        placeRequest.setRadius(radiusMeters);
-        placeRequest.setSortBy("price_asc"); //기본 정렬
-
-        //PlaceService를 사용하여 장소 검색
-        PlaceSearchResponse placeResponse = placeService.searchPlaces(
-                placeRequest,
+        // 거리만 기준으로 DB에서 반경 내 모든 장소 조회
+        double radiusKm = 50.0; // 기본 반경 50km
+        List<Store> stores = storeRepository.findStoresWithinRadius(
                 request.getLatitude(),
-                request.getLongitude()
+                request.getLongitude(),
+                radiusKm
         );
 
-        log.info("[RecommendationService] searchPlaces returned {} places",
-                   placeResponse.getPlaces() != null ? placeResponse.getPlaces().size() : 0);
+        logger.info("[RecommendationService] findStoresWithinRadius returned {} stores", stores.size());
 
-        // PlaceResponse를 StoreResponse로 변환
-        // 모든 장소를 가져와서 유형에 할당 (타입 필터링은 프론트엔드에서 수행)
-        List<StoreResponse> storeResponses = placeResponse.getPlaces().stream()
-                // 거리 필터링 주석 처리 - 원 외부의 핀도 표시하기 위해
-                // .filter(place -> {
-                //     // timeOption 필터링만 수행 (도보 시간이 timeOption 이하인 것만)
-                //     // 타입 필터링은 프론트엔드에서 수행하여 모든 장소가 유형별로 표시되도록 함
-                //     return place.getWalkTimeMinutes() != null && place.getWalkTimeMinutes() <= timeOptionMinutes;
-                // })
-                .map(this::convertToStoreResponse)
-                .collect(Collectors.toList());
+        // Store -> StoreResponse 변환
+        List<StoreResponse> responses = new ArrayList<>();
+        for (Store store : stores) {
+            StoreResponse response = convertStoreToStoreResponse(store);
+            responses.add(response);
+        }
 
-        logger.info("[RecommendationService] Converted to {} StoreResponse objects", storeResponses.size());
-        logger.info("[RecommendationService] Sample StoreResponse types (first 5):");
-        storeResponses.stream().limit(5).forEach(store -> {
-            logger.info("  - placeId: {}, name: {}, type: {}, types: {}, typesSize: {}", 
-                       store.getId(), store.getName(), store.getType(), store.getTypes(), 
-                       store.getTypes() != null ? store.getTypes().size() : 0);
-        });
-
-        return new RecommendationResponse(storeResponses);
+        return new RecommendationResponse(responses);
     }
 
     /**
-     * PlaceResponse를 StoreResponse로 변환
+     * Store 엔티티를 Basic 추천용 StoreResponse로 변환
+     * (DB에 저장된 최소 정보 + Redis types만 사용)
      */
-    private StoreResponse convertToStoreResponse(PlaceResponse place) {
-        //priceLevel 변환: "$", "$$", "$$$" -> 1, 2, 3
-        Integer priceLevel = 2; //기본값
-        if (place.getPriceLevel() != null) {
-            switch (place.getPriceLevel()) {
-                case "$":
-                    priceLevel = 1;
-                    break;
-                case "$$":
-                    priceLevel = 2;
-                    break;
-                case "$$$":
-                    priceLevel = 3;
-                    break;
-            }
-        }
+    private StoreResponse convertStoreToStoreResponse(Store store) {
+        // Redis에서 types 조회
+        List<String> types = reviewService.getTypes(store.getPlaceId());
 
-        // 타입은 PlaceResponse에서 이미 결정됨 (없으면 "other")
-        String type = (place.getType() != null && !place.getType().isEmpty()) ? place.getType() : "other";
+        // 대표 type 결정
+        String type = determineType(types);
 
-        // estimatedDuration 계산 (타입 기반)
-        int estimatedDuration = estimateDuration(type, place.getWalkTimeMinutes() != null ? place.getWalkTimeMinutes() : 30);
+        // 기본값 설정 (Basic 추천이므로 심플하게)
+        Integer walkingTime = 0; // 계산 안 함
+        Integer estimatedDuration = 30; // 기본 30분
+        Integer priceLevel = 2; // 기본 $$ 수준
 
-        // 리뷰 변환
-        List<StoreResponse.ReviewDto> reviewDtos = null;
-        if (place.getReviews() != null && !place.getReviews().isEmpty()) {
-            reviewDtos = place.getReviews().stream()
-                    .map(review -> new StoreResponse.ReviewDto(
-                            review.getAuthorName(),
-                            review.getRating(),
-                            review.getText(),
-                            review.getTime(),
-                            review.getRelativeTimeDescription()
-                    ))
-                    .collect(java.util.stream.Collectors.toList());
-        }
+        StoreResponse response = new StoreResponse();
+        response.setId(store.getPlaceId());
+        response.setName(store.getName());
+        response.setType(type);
+        response.setWalkingTime(walkingTime);
+        response.setEstimatedDuration(estimatedDuration);
+        response.setPriceLevel(priceLevel);
+        response.setCesReason(store.getReview());
+        response.setLatitude(store.getLatitude());
+        response.setLongitude(store.getLongitude());
+        response.setAddress(store.getAddress());
+        response.setPhotos(Collections.emptyList());
+        response.setTypes(types);
+        response.setReviews(Collections.emptyList());
+        response.setViewCount(0);
+        response.setViewCountIncrease(0L);
 
-        logger.info("[RecommendationService] convertToStoreResponse - placeId: {}, name: {}, types: {}, typesSize: {}, type: {}", 
-                   place.getId(), place.getName(), place.getTypes(), 
-                   place.getTypes() != null ? place.getTypes().size() : 0, type);
+        logger.info("[RecommendationService] convertStoreToStoreResponse - placeId: {}, type: {}, types: {}",
+                response.getId(), response.getType(), response.getTypes());
 
-        StoreResponse response = new StoreResponse(
-                place.getId(),
-                place.getName(),
-                type,
-                place.getWalkTimeMinutes(),
-                estimatedDuration,
-                priceLevel,
-                place.getHookMessage() != null ? place.getHookMessage() : place.getOneLineSummary(),
-                place.getLatitude(),
-                place.getLongitude(),
-                place.getAddress(),
-                place.getPhotos(), // 사진 URL 리스트
-                place.getTypes(), // Google Places API types 리스트
-                reviewDtos, // 리뷰 리스트
-                place.getViewCount() != null ? place.getViewCount().intValue() : 0, // 조회수
-                place.getViewCountIncrease() != null ? place.getViewCountIncrease() : 0L // 최근 10분 증가량
-        );
-        
-        logger.info("[RecommendationService] StoreResponse created - placeId: {}, types in response: {}", 
-                   response.getId(), response.getTypes());
-        
         return response;
     }
 
@@ -155,6 +107,17 @@ public class RecommendationService {
             default:
                 return Math.min(45, maxTime);
         }
+    }
+    private String determineType(List<String> types) {
+        if (types == null || types.isEmpty()) return "other";
+
+        if (types.contains("restaurant")) return "restaurant";
+        if (types.contains("cafe") || types.contains("coffee_shop")) return "cafe";
+        if (types.contains("fast_food_restaurant") || types.contains("meal_takeaway") || types.contains("fast_food"))
+            return "fastfood";
+        if (types.contains("bar") || types.contains("night_club")) return "bar";
+
+        return "other";
     }
 }
 
