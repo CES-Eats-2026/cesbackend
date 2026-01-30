@@ -1,19 +1,16 @@
 # Multi-stage build for Spring Boot application (Gradle)
-FROM eclipse-temurin:17-jdk-alpine AS build
+# Gradle 공식 이미지 사용 (wrapper JAR 없이 빌드)
+FROM gradle:8.5-jdk17-alpine AS build
 WORKDIR /app
 
-# Gradle wrapper + 설정 파일
-COPY gradlew .
-COPY gradle gradle
+# 빌드 설정만 먼저 복사해 의존성 레이어 캐시
 COPY build.gradle .
 COPY settings.gradle .
-
-# 의존성만 먼저 다운로드 (캐시 활용)
-RUN ./gradlew dependencies --no-daemon || true
+RUN gradle dependencies --no-daemon || true
 
 # 소스 복사 및 빌드
 COPY src ./src
-RUN ./gradlew bootJar -x test --no-daemon
+RUN gradle bootJar -x test --no-daemon
 
 # Runtime stage
 FROM eclipse-temurin:17-jre-alpine
