@@ -68,10 +68,12 @@ public class PlaceService {
      */
     public PlaceSearchResponse searchPlaces(PlaceSearchRequest request, double userLatitude, double userLongitude) {
         
-        //반경을 km로 변환 (미터 -> km)
-        double radiusKm = request.getRadius() / 1000.0;
-        
-        //1. DB에서 원형 거리 내의 장소들을 먼저 조회 (Google API 호출 최소화)
+        // 반경: 미터 단위. 미지정/0 이면 5000(5km) 사용
+        int radiusMeters = (request.getRadius() != null && request.getRadius() > 0)
+                ? request.getRadius() : 5000;
+        double radiusKm = radiusMeters / 1000.0;
+
+        // 1. DB에서 요청 반경 내 장소만 조회
         List<Store> storesInRadius = storeRepository.findStoresWithinRadius(
                 request.getLatitude(),
                 request.getLongitude(),

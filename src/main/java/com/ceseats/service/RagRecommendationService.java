@@ -138,11 +138,11 @@ public class RagRecommendationService {
      */
     public RagRecommendationResult getRandomStores(int count, Double latitude, Double longitude) {
 
-        // 반경 내의 모든 장소 가져오기 (50km 반경)
+        // 반경 내의 모든 장소 가져오기 (기본 5km)
         List<Store> allStores = storeRepository.findStoresWithinRadius(
             latitude,
             longitude,
-            50.0
+            5.0
         );
 
         // 레스토랑/카페 타입 필터링
@@ -208,7 +208,7 @@ public class RagRecommendationService {
         List<Store> stores = storeRepository.findRandomStoresWithinRadius(
             latitude,
             longitude,
-            maxDistanceKm != null ? maxDistanceKm.doubleValue() : 50.0
+            maxDistanceKm != null && maxDistanceKm > 0 ? maxDistanceKm.doubleValue() : 5.0
         );
 
         // Store → PlaceContext → StoreResponse 변환
@@ -353,11 +353,12 @@ public class RagRecommendationService {
         Set<String> typeFilteredPlaceIds
     ) {
         //typeFilteredPlaceIds 에 있는 장소id에 대해서 거리 제한 적용
+        double radiusKm = (maxDistanceKm != null && maxDistanceKm > 0) ? maxDistanceKm.doubleValue() : 5.0;
         if (typeFilteredPlaceIds != null && !typeFilteredPlaceIds.isEmpty()) {
             List<Store> stores = storeRepository.findStoresWithinRadiusAndPlaceIds(
                 latitude,
                 longitude,
-                maxDistanceKm != null ? maxDistanceKm.doubleValue() : 50.0,
+                radiusKm,
                 new ArrayList<>(typeFilteredPlaceIds)
             );
             return stores;
@@ -366,7 +367,7 @@ public class RagRecommendationService {
             List<Store> stores = storeRepository.findRandomStoresWithinRadius(
                 latitude,
                 longitude,
-                maxDistanceKm != null ? maxDistanceKm.doubleValue() : 50.0
+                radiusKm
             );
             return stores;
         }

@@ -34,8 +34,10 @@ public class RecommendationService {
 
     public RecommendationResponse getRecommendations(RecommendationRequest request) {
 
-        // 거리만 기준으로 DB에서 반경 내 모든 장소 조회
-        double radiusKm = 50.0; // 기본 반경 50km
+        // 거리만 기준으로 DB에서 요청한 반경 내 장소만 조회 (미터 → km)
+        int radiusMeters = request.getRadiusMeters() != null && request.getRadiusMeters() > 0
+                ? request.getRadiusMeters() : 5000;
+        double radiusKm = radiusMeters / 1000.0;
         List<Store> stores = storeRepository.findStoresWithinRadius(
                 request.getLatitude(),
                 request.getLongitude(),

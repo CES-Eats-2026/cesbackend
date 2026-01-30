@@ -13,7 +13,8 @@ import lombok.NoArgsConstructor;
 public class PlaceSearchRequest {
     private Double latitude;
     private Double longitude;
-    private Integer radius = 100; // 기본값 100m
+    /** 반경 (미터). 예: 5000 = 5km. 미지정/0 이면 5km 사용 */
+    private Integer radius = 5000;
     private String sortBy; // "price_asc", "view_desc"
 }
 
