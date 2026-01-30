@@ -10,11 +10,7 @@ import java.util.List;
 /**
  * Google Places API v1에서 받은 장소 데이터 DTO.
  * Store 엔티티 + Redis(types) 저장용만 사용.
- *
- * <p>Store 매핑: placeId←id, name←displayName.text|displayNameText|name|id,
- * latitude/longitude←location, address←formattedAddress, link←googleMapsUri,
- * review←reviewSummary.text.text|editorialSummary|reviews+LLM. types→Redis.</p>
- */
+ * */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -28,7 +24,23 @@ public class PlaceDataRequest {
     private String formattedAddress;
     private String googleMapsUri;
     private List<String> types;
-    private ReviewSummary reviewSummary;
+    private GenerativeSummary generativeSummary;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class GenerativeSummary {
+        private Overview overview;
+
+        @Data
+        @NoArgsConstructor
+        @AllArgsConstructor
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public static class Overview {
+            private String text;
+        }
+    }
 
     @Data
     @NoArgsConstructor
@@ -47,27 +59,6 @@ public class PlaceDataRequest {
     public static class DisplayName {
         private String text;
         private String languageCode;
-    }
-
-
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class ReviewSummary {
-        private TextContent text; // { text, languageCode }
-        private String flagContentUri; // 신고 URI
-        private TextContent disclosureText; // { text, languageCode }
-        private String reviewsUri; // 리뷰 URI
-
-        @Data
-        @NoArgsConstructor
-        @AllArgsConstructor
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        public static class TextContent {
-            private String text;
-            private String languageCode;
-        }
     }
 }
 

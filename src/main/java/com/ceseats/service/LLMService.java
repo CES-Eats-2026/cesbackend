@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 @Service
 public class LLMService {
 
@@ -127,7 +129,7 @@ public class LLMService {
         }
 
         try {
-            String result = callLLMInternal(prompt, userPreference, 500, 0.3);
+            String result = callLLMInternal(prompt, userPreference, 1024, 0.3);
             return result;
         } catch (Exception e) {
             throw e;
@@ -135,10 +137,15 @@ public class LLMService {
     }
 
     /**
-     * 내부 LLM 콜
+     * 내부 LLM 콜 - llm.provider에 따라 Gemini 또는 OpenAI 호출
      */
     private String callLLMInternal(String prompt, String userPreference, int maxTokens, double temperature) {
         try {
+            if ("gemini".equalsIgnoreCase(llmProvider)) {
+                log.info("[callLLMInternal] provider=gemini");
+                return callGeminiAPI(prompt, userPreference, maxTokens, temperature);
+            }
+            log.info("[callLLMInternal] provider=openai");
             return callOpenAIAPI(prompt, userPreference, maxTokens, temperature);
         } catch (Exception e) {
             throw new RuntimeException("LLM 콜 실패", e);
@@ -208,6 +215,7 @@ public class LLMService {
                                 if (textPart.has("text")) {
                                     String result = textPart.get("text").asText().trim();
                                     logger.info("[LLMService] callGeminiAPI SUCCESS - result length: {}", result.length());
+                                    logger.info("[LLMService] LLM response (raw): {}", result);
                                     return result;
                                 }
                             }
@@ -249,7 +257,7 @@ public class LLMService {
     private String callOpenAIAPI(String prompt, String userPreference, int maxTokens, double temperature) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", "Bearer " + openaiApiKey);
+        headers.set("Authorization", "Bearer " + geminiApiKey);
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", "gpt-3.5-turbo");
@@ -265,8 +273,10 @@ public class LLMService {
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
         ResponseEntity<String> response = restTemplate.postForEntity(openaiApiUrl, request, String.class);
 
+        log.info("[geminiapi 호출]");
         if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
             try {
+                log.info("[geminiapi 호출 완료]");
                 JsonNode root = objectMapper.readTree(response.getBody());
                 
                 // 토큰 사용량 로깅 및 Discord 알림

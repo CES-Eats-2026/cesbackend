@@ -1,7 +1,7 @@
 package com.ceseats.service;
 
 import com.ceseats.dto.request.PlaceDataRequest;
-import com.ceseats.dto.request.PlaceSearchRequest;  // dto/request/PlaceSearchRequest.java
+import com.ceseats.dto.request.PlaceSearchRequest;
 import com.ceseats.dto.response.PlaceResponse;
 import com.ceseats.dto.response.PlaceSearchResponse;
 import com.ceseats.entity.PlaceView;
@@ -133,12 +133,13 @@ public class PlaceService {
 
     /**
      * 장소 조회수 증가 (카드 클릭 시)
+     * 동시 요청 시 duplicate key 가능하므로, INSERT 실패하면 재조회 후 UPDATE로 재시도
      * @return 업데이트된 조회수
      */
     @Transactional
     public Long incrementViewCount(String placeId) {
         Optional<PlaceView> placeViewOpt = placeViewRepository.findByPlaceId(placeId);
-        
+
         PlaceView placeView;
         if (placeViewOpt.isPresent()) {
             placeView = placeViewOpt.get();
@@ -147,12 +148,26 @@ public class PlaceService {
             placeView = new PlaceView();
             placeView.setPlaceId(placeId);
             placeView.setViewCount(1L);
-            placeView.setLast10MinViewCount(0L); // 초기값 설정
-            // 스냅샷은 처음 생성 시 현재 조회수로 설정
+            placeView.setLast10MinViewCount(0L);
             placeView.update10MinSnapshot();
         }
-        
-        placeViewRepository.save(placeView);
+
+        try {
+            placeViewRepository.save(placeView);
+        } catch (DataIntegrityViolationException e) {
+            // 동시 요청으로 이미 같은 place_id가 INSERT된 경우: 재조회 후 증가
+            if (e.getMessage() != null && e.getMessage().contains("place_views_place_id_key")) {
+                placeViewOpt = placeViewRepository.findByPlaceId(placeId);
+                if (placeViewOpt.isPresent()) {
+                    placeView = placeViewOpt.get();
+                    placeView.incrementViewCount();
+                    placeViewRepository.save(placeView);
+                    return placeView.getViewCount();
+                }
+                throw new IllegalStateException("place_views duplicate key but row not found for placeId: " + placeId, e);
+            }
+            throw e;
+        }
         return placeView.getViewCount();
     }
 
@@ -417,9 +432,9 @@ public class PlaceService {
             String mapUrl = googlePlacesClient.generateGoogleMapUrl(details.getPlaceId());
             store.setLink(mapUrl);
 
-            // 리뷰 요약 또는 CES reason을 review 컬럼에 저장
+            // 리뷰 요약 또는 CES reason을 review 컬럼에 저장 (숫자만 있으면 fallback 사용)
             String reviewSummary = generateCesReason(details);
-            store.setReview(reviewSummary);
+            store.setReview(sanitizeReviewText(reviewSummary, details.getTypes()));
             
             // reviews를 Redis에 저장 (최대 5개)
             if (details.getReviews() != null && !details.getReviews().isEmpty()) {
@@ -726,10 +741,11 @@ public class PlaceService {
                 return;
             }
 
-            // address 추출 및 저장
-            if (placeData.getFormattedAddress() != null && !placeData.getFormattedAddress().isEmpty()) {
-                store.setAddress(placeData.getFormattedAddress());
-                System.out.println("Setting address for place " + placeId + ": " + placeData.getFormattedAddress());
+            // formattedAddress → Store.address 저장 (없으면 null)
+            store.setAddress(placeData.getFormattedAddress() != null && !placeData.getFormattedAddress().isEmpty()
+                    ? placeData.getFormattedAddress() : null);
+            if (store.getAddress() != null) {
+                System.out.println("Setting address for place " + placeId + ": " + store.getAddress());
             } else {
                 System.out.println("WARNING: No address for place: " + placeId + " (formattedAddress is null or empty)");
             }
@@ -739,9 +755,9 @@ public class PlaceService {
                 store.setLink(placeData.getGoogleMapsUri());
             }
 
-            // reviewSummary / editorial / 리뷰 기반 한 줄 리뷰를 review 컬럼에 저장
+            // generativeSummary.overview.text 또는 fallback을 review 컬럼에 저장 (숫자만 있으면 fallback 사용)
             String reviewText = generateCesReasonFromJson(placeData);
-            store.setReview(reviewText);
+            store.setReview(sanitizeReviewText(reviewText, placeData.getTypes()));
             
             // types를 Redis에 저장 (DB 저장 전에 먼저 저장)
             if (placeData.getTypes() != null && !placeData.getTypes().isEmpty()) {
@@ -808,18 +824,57 @@ public class PlaceService {
 
     /**
      * PlaceDataRequest에서 Store.review용 CES reason 생성
-     * 우선순위: reviewSummary.text.text > fallback (타입 기반)
+     * 우선순위: generativeSummary.overview.text > fallback (타입 기반)
+     * 숫자만 있는 값은 사용하지 않고 fallback 사용
      */
     private String generateCesReasonFromJson(PlaceDataRequest placeData) {
-        if (placeData.getReviewSummary() != null
-                && placeData.getReviewSummary().getText() != null
-                && placeData.getReviewSummary().getText().getText() != null
-                && !placeData.getReviewSummary().getText().getText().isEmpty()) {
-            return placeData.getReviewSummary().getText().getText();
+        // 1) generativeSummary.overview.text
+        if (placeData.getGenerativeSummary() != null
+                && placeData.getGenerativeSummary().getOverview() != null
+                && placeData.getGenerativeSummary().getOverview().getText() != null) {
+            String overviewText = placeData.getGenerativeSummary().getOverview().getText().trim();
+            if (!overviewText.isEmpty() && !isOnlyDigits(overviewText)) {
+                return overviewText;
+            }
         }
+        // 2) fallback (타입 기반)
         String type = determinePlaceTypeFromTypes(placeData.getTypes());
         String fallbackReason = generateFallbackCesReason(type);
         return fallbackReason != null ? fallbackReason : "참가자들이 자주 찾는 인기 장소";
+    }
+
+    /** 숫자만으로 이루어진 문자열인지 확인 (리뷰 개수 등 오매핑 제외용) */
+    private boolean isOnlyDigits(String s) {
+        if (s == null || s.isEmpty()) return true;
+        for (int i = 0; i < s.length(); i++) {
+            if (!Character.isDigit(s.charAt(i))) return false;
+        }
+        return true;
+    }
+
+    /** 공백·쉼표·마침표 제거 후 숫자만 있는지 확인 (예: "16 470", "16,470" 제외) */
+    private boolean looksLikeNumber(String s) {
+        if (s == null || s.isEmpty()) return true;
+        String stripped = s.replace(" ", "").replace(",", "").replace(".", "").replace("_", "").trim();
+        return isOnlyDigits(stripped);
+    }
+
+    /** review 텍스트가 숫자/숫자형이면 타입 기반 fallback으로 대체 */
+    private String sanitizeReviewText(String text, List<String> types) {
+        if (text == null || text.trim().isEmpty()) {
+            return fallbackReviewForTypes(types);
+        }
+        String trimmed = text.trim();
+        if (looksLikeNumber(trimmed)) {
+            return fallbackReviewForTypes(types);
+        }
+        return trimmed;
+    }
+
+    private String fallbackReviewForTypes(List<String> types) {
+        String type = types != null && !types.isEmpty() ? determinePlaceTypeFromTypes(types) : "other";
+        String fallback = generateFallbackCesReason(type);
+        return fallback != null ? fallback : "참가자들이 자주 찾는 인기 장소";
     }
 
     /**
@@ -927,21 +982,17 @@ public class PlaceService {
         placeData.setFormattedAddress(place.getFormattedAddress());
         placeData.setGoogleMapsUri(place.getGoogleMapsUri());
         
-        // reviewSummary
-        if (place.getReviewSummary() != null && place.getReviewSummary().getText() != null) {
-            PlaceDataRequest.ReviewSummary reviewSummary = new PlaceDataRequest.ReviewSummary();
-            PlaceDataRequest.ReviewSummary.TextContent textContent = new PlaceDataRequest.ReviewSummary.TextContent();
-            textContent.setText(place.getReviewSummary().getText().getText());
-            textContent.setLanguageCode(place.getReviewSummary().getText().getLanguageCode());
-            reviewSummary.setText(textContent);
-            placeData.setReviewSummary(reviewSummary);
-            System.out.println("✅ reviewSummary found for " + place.getId() + ": " + 
-                (textContent.getText() != null ? textContent.getText().substring(0, Math.min(50, textContent.getText().length())) + "..." : "null"));
-        } else {
-            System.out.println("⚠️ reviewSummary not found in API response for " + place.getId() + 
-                " (place.getReviewSummary() is " + (place.getReviewSummary() == null ? "null" : "not null") + ")");
+        // generativeSummary.overview.text (review 우선 사용)
+        if (place.getGenerativeSummary() != null && place.getGenerativeSummary().getOverview() != null) {
+            String overviewText = place.getGenerativeSummary().getOverview().getText();
+            if (overviewText != null && !overviewText.trim().isEmpty()) {
+                PlaceDataRequest.GenerativeSummary gen = new PlaceDataRequest.GenerativeSummary();
+                PlaceDataRequest.GenerativeSummary.Overview overview = new PlaceDataRequest.GenerativeSummary.Overview();
+                overview.setText(overviewText.trim());
+                gen.setOverview(overview);
+                placeData.setGenerativeSummary(gen);
+            }
         }
-        
         return placeData;
     }
 }

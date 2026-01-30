@@ -36,7 +36,6 @@ public class Store {//google api 호출했을때 json 응답 내에서 값들의
     private String link;//googleMapsUri
 
     @Column(name = "review", columnDefinition = "TEXT")
-    @Lob
     private String review; //reviewSummary > text > text
 
     @PrePersist

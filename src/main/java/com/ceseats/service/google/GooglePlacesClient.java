@@ -486,7 +486,8 @@ public class GooglePlacesClient {
                 "places.location," +
                 "places.types," +
                 "places.googleMapsUri," +
-                "places.reviewSummary,");
+                "places.formattedAddress," +
+                "places.generativeSummary,");
 
             HttpEntity<SearchNearbyRequest> entity = new HttpEntity<>(request, headers);
 

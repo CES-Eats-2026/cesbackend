@@ -40,8 +40,8 @@ public class SearchNearbyResponse {
         private String websiteUri;
         private String googleMapsUri;
         private EditorialSummary editorialSummary;
+        private GenerativeSummary generativeSummary;
         private List<Review> reviews;
-        private ReviewSummary reviewSummary;
         private RegularOpeningHours regularOpeningHours;
         private CurrentOpeningHours currentOpeningHours;
         
@@ -207,18 +207,18 @@ public class SearchNearbyResponse {
         @NoArgsConstructor
         @AllArgsConstructor
         @JsonIgnoreProperties(ignoreUnknown = true)
-        public static class ReviewSummary {
-            private TextContent text;
-            
+        public static class GenerativeSummary {
+            private Overview overview;
+
             @Data
             @NoArgsConstructor
             @AllArgsConstructor
             @JsonIgnoreProperties(ignoreUnknown = true)
-            public static class TextContent {
+            public static class Overview {
                 private String text;
-                private String languageCode;
             }
         }
+
     }
 }
 

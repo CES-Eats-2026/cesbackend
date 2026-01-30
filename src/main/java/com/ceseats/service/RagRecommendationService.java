@@ -8,6 +8,8 @@ import com.ceseats.repository.StoreRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.Collections;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -61,13 +63,17 @@ public class RagRecommendationService {
             type2 : {id2, id3}
              */
             Set<String> typeFilteredPlaceIds = new HashSet<>();
-            
+
+            // Redis에서 조회할 types 로그
+            log.info("[RagRecommendationService] Redis에서 찾을 types: {}", filters.getTypes() != null ? filters.getTypes() : "null");
+
             //타입별로 Redis에서 place_id 배열(List) 조회
             if (filters.getTypes() != null && !filters.getTypes().isEmpty()) {
                 for (String type : filters.getTypes()) {
                     String redisKey = "type:" + type;
                     Object value = redisTemplate.opsForValue().get(redisKey);
                     if (value == null) {
+                        log.info("[RagRecommendationService] Redis type:{} -> (key 없음 또는 값 없음)", redisKey);
                         continue;
                     }
 
@@ -92,11 +98,12 @@ public class RagRecommendationService {
                         }
                     }
 
+                    log.info("[RagRecommendationService] Redis type:{} -> placeIds: {} ({}개)", redisKey, placeIdList, placeIdList.size());
                     typeFilteredPlaceIds.addAll(placeIdList);
                 }
             }
-            
-            log.info("[RagRecommendationService] Redis 타입 필터링 결과: {}개 placeIds", typeFilteredPlaceIds.size());
+
+            log.info("[RagRecommendationService] Redis 타입 필터링 결과: {}개 placeIds (전체)", typeFilteredPlaceIds.size());
 
             //2-2: 필터링 (위치, 거리)
             log.info("[RagRecommendationService] Step 2: PostgreSQL에서 필터링");
@@ -232,7 +239,9 @@ public class RagRecommendationService {
         try {
             String prompt = buildPreferenceParsingPrompt(userPreference);
             //사용자 자연어를 LLM 호출 시 전달하여 Discord 알림에 포함
-            String llmResponse = llmService.callLLM(prompt, userPreference);
+            //String llmResponse = llmService.callLLM(prompt, userPreference);
+            String llmResponse = "[\"cafe\", \"coffee_shop\", \"wine_bar\"]";//LLM비용 줄이기 위해 우선 하드코딩
+            log.info("[RagRecommendationService] LLM response (raw): {}", llmResponse);
             PreferenceFilters filters = parseLLMResponse(llmResponse);
             return filters;
         } catch (Exception e) {
@@ -250,24 +259,88 @@ public class RagRecommendationService {
     }
 
     private PreferenceFilters parseLLMResponse(String response) {
-        try {
-            // Extract JSON from response (handle markdown code blocks)
-            String json = response.trim();
-            if (json.startsWith("```json")) {
-                json = json.substring(7);
-            }
-            if (json.startsWith("```")) {
-                json = json.substring(3);
-            }
-            if (json.endsWith("```")) {
-                json = json.substring(0, json.length() - 3);
-            }
-            json = json.trim();
-
-            return objectMapper.readValue(json, PreferenceFilters.class);
-        } catch (Exception e) {
-            return new PreferenceFilters(); // Empty filters
+        //Extract JSON from response (handle markdown code blocks)
+        String json = response != null ? response.trim() : "";
+        if (json.startsWith("```json")) {
+            json = json.substring(7);
         }
+        if (json.startsWith("```")) {
+            json = json.substring(3);
+        }
+        if (json.endsWith("```")) {
+            json = json.substring(0, json.length() - 3);
+        }
+        json = json.trim();
+
+        try {
+            JsonNode root = objectMapper.readTree(json);
+
+            // LLM이 루트를 배열로 반환하는 경우: ["cafe", "coffee_shop", "wine_bar"]
+            if (root.isArray()) {
+                java.util.List<String> types = new java.util.ArrayList<>();
+                root.forEach(n -> {
+                    String s = n.asText().trim();
+                    if (!s.isEmpty() && !"random".equalsIgnoreCase(s)) types.add(s);
+                });
+                if (!types.isEmpty()) return new PreferenceFilters(types);
+            }
+
+            // "types": ["restaurant", "cafe"] 형태
+            if (root.has("types") && root.get("types").isArray()) {
+                java.util.List<String> types = new java.util.ArrayList<>();
+                root.get("types").forEach(n -> types.add(n.asText()));
+                return new PreferenceFilters(types);
+            }
+
+            // LLM이 "category": "restaurant" 또는 "category": ["restaurant", "cafe"] 형태로 반환하는 경우
+            if (root.has("category")) {
+                JsonNode categoryNode = root.get("category");
+                if (categoryNode.isArray()) {
+                    java.util.List<String> types = new java.util.ArrayList<>();
+                    categoryNode.forEach(n -> {
+                        String s = n.asText().trim();
+                        if (!s.isEmpty() && !"random".equalsIgnoreCase(s)) types.add(s);
+                    });
+                    if (!types.isEmpty()) return new PreferenceFilters(types);
+                } else {
+                    String category = categoryNode.asText().trim();
+                    if (!category.isEmpty() && !"random".equalsIgnoreCase(category)) {
+                        return new PreferenceFilters(Collections.singletonList(category));
+                    }
+                }
+            }
+
+            // "random"만 있는 경우 등
+            return new PreferenceFilters(Collections.emptyList());
+        } catch (Exception e) {
+            log.warn("[RagRecommendationService] parseLLMResponse 실패, 잘린 응답에서 타입 복구 시도: {}", e.getMessage());
+            return salvageTypesFromIncompleteJson(json);
+        }
+    }
+
+
+    /** JSON이 잘려 파싱 실패 시, raw 문자열에서 타입 키워드 추출 (Redis type:xxx 키와 매칭되는 값) */
+    private static final java.util.Set<String> KNOWN_TYPES = new java.util.LinkedHashSet<>(java.util.Arrays.asList(
+            "restaurant", "cafe", "coffee_shop", "asian_restaurant", "breakfast_restaurant", "cafeteria",
+            "chinese_restaurant", "fine_dining_restaurant", "italian_restaurant", "mexican_restaurant",
+            "thai_restaurant", "wine_bar", "bar", "night_club", "pub", "fast_food_restaurant"
+    ));
+
+    private PreferenceFilters salvageTypesFromIncompleteJson(String raw) {
+        if (raw == null || raw.isEmpty()) return new PreferenceFilters(Collections.emptyList());
+        java.util.List<String> found = new java.util.ArrayList<>();
+        String lower = raw.toLowerCase();
+        for (String type : KNOWN_TYPES) {
+            // "restaurant" 또는 "\"restaurant\"" 형태로 등장하는지 확인
+            if (lower.contains("\"" + type + "\"") || lower.contains("\"" + type)) {
+                found.add(type);
+            }
+        }
+        if (!found.isEmpty()) {
+            log.info("[RagRecommendationService] 잘린 JSON에서 복구한 types: {}", found);
+            return new PreferenceFilters(found);
+        }
+        return new PreferenceFilters(Collections.emptyList());
     }
 
     /**
