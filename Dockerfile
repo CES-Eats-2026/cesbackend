@@ -1,35 +1,36 @@
-# Multi-stage build for Spring Boot application
-FROM maven:3.9-eclipse-temurin-17 AS build
+# Multi-stage build for Spring Boot application (Gradle)
+FROM eclipse-temurin:17-jdk-alpine AS build
 WORKDIR /app
 
-# Copy pom.xml and download dependencies
-COPY pom.xml .
-RUN mvn dependency:go-offline -B
+# Gradle wrapper + 설정 파일
+COPY gradlew .
+COPY gradle gradle
+COPY build.gradle .
+COPY settings.gradle .
 
-# Copy source code and build
+# 의존성만 먼저 다운로드 (캐시 활용)
+RUN ./gradlew dependencies --no-daemon || true
+
+# 소스 복사 및 빌드
 COPY src ./src
-RUN mvn clean package -DskipTests
+RUN ./gradlew bootJar -x test --no-daemon
 
 # Runtime stage
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-# Create app user and data directory
+# 앱 유저 및 데이터 디렉터리
 RUN addgroup -S spring && adduser -S spring -G spring
-RUN mkdir -p /app/data && chown -R spring:spring /app/data
+RUN mkdir -p /app/data /app/logs && chown -R spring:spring /app/data /app/logs
 
-# Copy JAR from build stage
-COPY --from=build /app/target/ces-eats-backend-0.0.1-SNAPSHOT.jar app.jar
+# 빌드된 JAR 복사
+COPY --from=build /app/build/libs/*.jar app.jar
 
 USER spring:spring
 
-# Expose port
 EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/health || exit 1
 
-# Run application
 ENTRYPOINT ["java", "-jar", "-Dspring.profiles.active=prod", "app.jar"]
-
