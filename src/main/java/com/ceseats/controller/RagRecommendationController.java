@@ -22,42 +22,50 @@ public class RagRecommendationController {
     @Autowired
     private RagRecommendationService ragRecommendationService;
 
+    @Autowired
+    private com.ceseats.service.RagAsyncStreamService ragAsyncStreamService;
+
     @PostMapping("/recommendations")
     public ResponseEntity<Map<String, Object>> getRagRecommendations(
             @RequestBody RagRecommendationRequest request) {
-        try {
-            
-            RagRecommendationService.RagRecommendationResult result = 
-                ragRecommendationService.getRecommendations(request);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("stores", result.getStores());
-            response.put("isRandom", result.isRandom()); //랜덤 반환 여부
+        // ver.2: Redis Streams 기반 비동기 처리
+        final long t0 = System.nanoTime();
+        String requestId = ragAsyncStreamService.enqueueLlmRequest(request);
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "PROCESSING");
+        response.put("requestId", requestId != null ? requestId.trim() : null);
+        log.info("[RAG][{}] request accepted: enqueueMs={}", requestId, (System.nanoTime() - t0) / 1_000_000L);
+        return ResponseEntity.ok(response);
+    }
 
-            
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            //에러 발생 시 랜덤 3개 반환 - 재시도 로직 1개 (fallback)
-            try {
-                // 타입 필터링에 실패했을 수 있으므로, 타입은 무시하고 거리 기준으로만 랜덤 3개 반환
-                RagRecommendationService.RagRecommendationResult randomResult =
-                    ragRecommendationService.getDistanceOnlyRandomStores(
-                        request.getLatitude(),
-                        request.getLongitude(),
-                        request.getMaxDistanceKm()
-                    );
-                
-                Map<String, Object> response = new HashMap<>();
-                response.put("stores", randomResult.getStores());
-                response.put("isRandom", true);
-                
-                return ResponseEntity.ok(response);
-            } catch (Exception fallbackException) {
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("error", "Failed to get recommendations: " + e.getMessage());
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+    /**
+     * 클라이언트 polliing api
+     * GET /api/rag/requests/{requestId}
+     */
+    @GetMapping("/requests/{requestId}")
+    public ResponseEntity<Map<String, Object>> getRagRequestStatus(@PathVariable String requestId) {
+        String normalizedRequestId = requestId != null ? requestId.trim() : null;
+        Map<String, Object> res = new HashMap<>();
+        res.put("requestId", normalizedRequestId);
+
+        String status = ragAsyncStreamService.getStatus(normalizedRequestId);
+        res.put("status", status != null ? status : "NOT_FOUND");
+
+        if ("DONE".equalsIgnoreCase(status)) {
+            String resultJson = ragAsyncStreamService.getResultJson(normalizedRequestId);
+            if (resultJson != null) {
+                try {
+                    // JSON 문자열 그대로 응답에 포함 (프론트에서 바로 파싱 가능)
+                    res.put("result", new com.fasterxml.jackson.databind.ObjectMapper().readTree(resultJson));
+                } catch (Exception e) {
+                    res.put("result", resultJson);
+                }
             }
+        } else if ("ERROR".equalsIgnoreCase(status)) {
+            res.put("error", ragAsyncStreamService.getError(normalizedRequestId));
         }
+
+        return ResponseEntity.ok(res);
     }
 }
 
