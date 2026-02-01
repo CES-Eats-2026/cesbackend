@@ -1,4 +1,4 @@
-package com.ceseats.config;
+package com.ceseats.config.redis;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

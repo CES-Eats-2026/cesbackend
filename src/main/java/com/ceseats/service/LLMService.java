@@ -82,7 +82,7 @@ public class LLMService {
                 "%s\n\n" +
                 "위 정보를 바탕으로, CES 참가자들이 이 장소를 선택해야 하는 이유를 한 문장으로 작성해주세요. " +
                 "CES 맥락에서 왜 이 장소가 좋은지, 실용적이고 구체적으로 설명해주세요. " +
-                "예: '전시장에서 가장 가까운 빠른 식사 장소', 'CES 참가자들이 자주 찾는 네트워킹 장소' 등. " +
+                "예: '전시장에서 가장 가까운 빠른 식사 장소', '참가자들이 자주 찾는 네트워킹 장소' 등. " +
                 "한국어로 답변해주세요.",
                 placeType, placeName, context.toString()
             );
@@ -105,9 +105,9 @@ public class LLMService {
             case "cafe":
                 return "회의나 작업하기 좋은 분위기";
             case "bar":
-                return "CES 후 네트워킹과 휴식에 최적";
+                return "네트워킹과 휴식에 최적";
             default:
-                return "CES 참가자들이 자주 찾는 인기 장소";
+                return "참가자들이 자주 찾는 인기 장소";
         }
     }
 
