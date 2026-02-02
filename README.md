@@ -1,4 +1,4 @@
-# 대량 동시 요청 설계 
+# 대량 동시 요청 설계
 
 ## 단일 서버 기준 (ver.1) vs redis streams 적용 기준(ver.2)
 
@@ -17,7 +17,7 @@
 (현재는 **scale up/out 없이 단일 서버 기준**으로 분석합니다.)
 
 ---
-
+<!--
 ## 단일 서버 환경
 
 | 항목                    | 값                     |
@@ -28,11 +28,22 @@
 | Tomcat Threads        | 100                   |
 | DB Connection Pool    | 50                    |
 | Redis Connection Pool | 14                    |
+-->
+## 단일 서버 환경
+
+| 항목                    | 값       |
+|-----------------------|---------|
+| CPU                   | 2 vCore |
+| 메모리                   | 8 GB    |
+| 디스크                   | 50 GB   |
+| Tomcat Threads        | 100     |
+| DB Connection Pool    | 50      |
+| Redis Connection Pool | 14      |
 
 
 ## 지연 가능성이 있는 로직
 
-기능 : 자연어 기반 추천 
+기능 : 자연어 기반 추천
 
 - 유저 1명이 LLM 추천 호출 1건당 발생시키는 DB 쿼리 수: **1개**
 - LLM 호출 시 고려 사항:
@@ -43,9 +54,13 @@
 처리 로직 순서:
 
 1. 사용자 요청 → Gemini API 호출하기
-  - 사용자 선호도를 LLM으로 파싱해서 얻은 응답은 장소타입에 대한 정보
+- 사용자 선호도를 LLM으로 파싱해서 얻은 응답은 장소타입에 대한 정보
 2. Redis에서 저장된 장소타입에 해당되는 장소id 리스트 형태로 얻어내기
 3. 장소id와 특정 거리 내 조건 적용해서 DB에서 조회
+
+  <details>
+  <summary>쿼리</summary>
+
 
 ```sql
 SELECT *
@@ -66,14 +81,17 @@ ORDER BY (
         )
       ) ASC;
 ```
-## 부하 테스트 툴 
+
+  </details>
+
+## 부하 테스트 툴
 
 k6 택
 
 이유: 분산 부하 테스트 지원. [grafana 와 cli로 연결된 k6](https://grafana.com/docs/k6/latest/results-output/real-time/cloud/), go 루틴 (스레드보다 더 vu 빨리 만듬)
 
 - 결과
-[시나리오1]
+  [스파이크 테스트]
   - 총 iterations: 4774번
   - 실행 시간: 3분 (2분 ramp-up + 1분 ramp-down)
   - 최대 VU: 100명
@@ -85,7 +103,7 @@ k6 택
 <img src="imgs/scene2.png">
 
 - 결과
-  [시나리오2]
+  [스모크 테스트]
   - 총 iterations: 345번
   - 실행 시간: 35.9초 (30초 유지 + 5초 ramp-down)
   - 최대 VU: 15명
@@ -124,18 +142,24 @@ k6 택
 | 단계 | 소요 시간 (ms) |
 | --- | --- |
 | LLM 호출 + 처리 | 2993~2998 |
-| Redis Lookup (LLM stage) | 1 |
-| DB 직렬화 + Stream XADD | 1 |
 | DB 조회 + 처리 | 28 |
-| Redis Stream ack (LLM) | 0 |
-| Redis Stream ack (DB) | 0 |
 | **총합** | 약 3026 ms |
 
-- 결과[시나리오1]
-  - 
-## redis가 꺼진다면?
 
-## kubernetes 적용 
+- 결과
+  [스파이크 테스트]
 
+    - 평균: 72,448ms (약 72.4초)
 
+    - 중앙값(median): 69,413ms (약 69.4초)
+    
+    - p(90): 137,452ms (약 2분 17초)
+    
+    - p(95): 154,747ms (약 2분 35초)
+    
+    - 최대: 172,967ms (약 2분 53초)
+
+  📌 => 동시 100명 요청 시에도 요청 유실 없이 큐에서 순차 처리
+    
+## redis mater-slave
 
